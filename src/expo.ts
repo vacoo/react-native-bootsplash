@@ -1,20 +1,25 @@
 import {
   ConfigPlugin,
+  withAndroidColors,
   withAndroidManifest,
   withAndroidStyles,
   withAppDelegate,
   withMainActivity,
   withPlugins,
 } from "@expo/config-plugins";
+import { assignColorValue } from "@expo/config-plugins/build/android/Colors";
 import { addImports } from "@expo/config-plugins/build/android/codeMod";
 import { mergeContents } from "@expo/config-plugins/build/utils/generateCode";
 import { dedent } from "ts-dedent";
+import { parseColor } from "./generate";
 
 const PACKAGE_NAME = "react-native-bootsplash";
 
 type Props = {
-  logo?: string;
+  background?: string;
   brand?: string;
+  darkBackground?: string;
+  logo?: string;
 };
 
 const getTag = (name: string) => `${PACKAGE_NAME}-${name}`;
@@ -165,15 +170,29 @@ const withBootSplashMainActivity: ConfigPlugin<Props> = (config, _props) =>
     };
   });
 
+const withBootSplashAndroidColors: ConfigPlugin<Props> = (
+  config,
+  { background = "#fff" },
+) =>
+  withAndroidColors(config, (config) => {
+    config.modResults = assignColorValue(config.modResults, {
+      name: "bootsplash_background",
+      value: parseColor(background).hex.toLowerCase(),
+    });
+
+    return config;
+  });
+
 const withBootSplash: ConfigPlugin<Props> = (config, props) => {
   // TODO: use config.platforms
-  // TODO: transform props here
+  // TODO: transform + validate props
 
   return withPlugins(config, [
     [withBootSplashAppDelegate, props],
     [withBootSplashAndroidStyles, props],
     [withBootSplashAndroidManifest, props],
     [withBootSplashMainActivity, props],
+    [withBootSplashAndroidColors, props],
   ]);
 };
 
