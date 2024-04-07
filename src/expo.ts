@@ -21,6 +21,7 @@ type Props = {
   background?: string;
   brand?: string;
   darkBackground?: string;
+  licenseKey?: string;
   logo?: string;
 };
 
@@ -195,15 +196,30 @@ const withBootSplash: ConfigPlugin<Props> = (config, props) => {
   // TODO: use config.platforms
   // TODO: transform + validate props (using the same logic as the CLI one)
 
-  return withPlugins(config, [
-    [withBootSplashAppDelegate, props],
-    [withBootSplashInfoPlist, props],
-    [withBootSplashAndroidStyles, props],
-    [withBootSplashAndroidManifest, props],
-    [withBootSplashMainActivity, props],
-    [withBootSplashAndroidColors, props],
-    [withBootSplashAddon, props],
-  ]);
+  const { platforms = [] } = config;
+  const plugins: [plugin: ConfigPlugin<Props>, props: Props][] = [];
+
+  if (platforms.includes("ios")) {
+    plugins.push(
+      [withBootSplashAppDelegate, props],
+      [withBootSplashInfoPlist, props],
+    );
+  }
+
+  if (platforms.includes("android")) {
+    plugins.push(
+      [withBootSplashAndroidStyles, props],
+      [withBootSplashAndroidManifest, props],
+      [withBootSplashMainActivity, props],
+      [withBootSplashAndroidColors, props],
+    );
+  }
+
+  if (props.licenseKey != null) {
+    plugins.push([withBootSplashAddon, props]);
+  }
+
+  return withPlugins(config, plugins);
 };
 
 export default withBootSplash;
