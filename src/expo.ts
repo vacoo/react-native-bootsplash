@@ -1,5 +1,6 @@
 import {
   ConfigPlugin,
+  withAndroidStyles,
   withAppDelegate,
   withPlugins,
 } from "@expo/config-plugins";
@@ -10,6 +11,7 @@ const PACKAGE_NAME = "react-native-bootsplash";
 
 type Props = {
   logo?: string;
+  brand?: string;
 };
 
 const getTag = (name: string) => `${PACKAGE_NAME}-${name}`;
@@ -68,10 +70,46 @@ const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
     };
   });
 
+const withBootSplashStylesXml: ConfigPlugin<Props> = (config, { brand }) =>
+  withAndroidStyles(config, (config) => {
+    const item = [
+      {
+        $: { name: "postBootSplashTheme" },
+        _: "@style/AppTheme",
+      },
+      {
+        $: { name: "bootSplashBackground" },
+        _: "@color/bootsplash_background",
+      },
+      {
+        $: { name: "bootSplashLogo" },
+        _: "@drawable/bootsplash_logo",
+      },
+    ];
+
+    if (brand != null) {
+      item.push({
+        $: { name: "bootSplashBrand" },
+        _: "@drawable/bootsplash_brand",
+      });
+    }
+
+    config.modResults.resources.style?.push({
+      $: { name: "BootTheme", parent: "Theme.BootSplash" },
+      item,
+    });
+
+    return config;
+  });
+
 const withBootSplash: ConfigPlugin<Props> = (config, props) => {
   // TODO: use config.platforms
   // TODO: transform props here
-  return withPlugins(config, [[withBootSplashAppDelegate, props]]);
+
+  return withPlugins(config, [
+    [withBootSplashAppDelegate, props],
+    [withBootSplashStylesXml, props],
+  ]);
 };
 
 export default withBootSplash;
