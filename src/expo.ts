@@ -3,8 +3,10 @@ import {
   withAndroidManifest,
   withAndroidStyles,
   withAppDelegate,
+  withMainActivity,
   withPlugins,
 } from "@expo/config-plugins";
+import { addImports } from "@expo/config-plugins/build/android/codeMod";
 import { mergeContents } from "@expo/config-plugins/build/utils/generateCode";
 import { dedent } from "ts-dedent";
 
@@ -25,7 +27,7 @@ const logMalformedFileError = (file: string) =>
 const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
   withAppDelegate(config, (config) => {
     const { modResults } = config;
-    const { contents, language } = modResults;
+    const { language } = modResults;
 
     if (language !== "objc" && language !== "objcpp") {
       throw new Error(
@@ -34,7 +36,7 @@ const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
     }
 
     const withHeader = mergeContents({
-      src: contents,
+      src: modResults.contents,
       comment: "//",
       tag: getTag("header"),
       offset: 1,
@@ -46,7 +48,7 @@ const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
       src: withHeader.contents,
       comment: "//",
       tag: getTag("init"),
-      offset: -1,
+      offset: 0,
       anchor: /@end/,
       newSrc: dedent`
         - (UIView *)createRootViewWithBridge:(RCTBridge *)bridge moduleName:(NSString *)moduleName initProps:(NSDictionary *)initProps {
@@ -96,8 +98,11 @@ const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, { brand }) =>
     }
 
     config.modResults.resources.style?.push({
-      $: { name: "BootTheme", parent: "Theme.BootSplash" },
       item,
+      $: {
+        name: "BootTheme",
+        parent: "Theme.BootSplash",
+      },
     });
 
     return config;
@@ -120,6 +125,46 @@ const withBootSplashAndroidManifest: ConfigPlugin<Props> = (config, _props) =>
     return config;
   });
 
+const withBootSplashMainActivity: ConfigPlugin<Props> = (config, _props) =>
+  withMainActivity(config, (config) => {
+    const { modResults } = config;
+    const { language } = modResults;
+
+    const withImports = addImports(
+      modResults.contents.replace(
+        /setTheme\(R\.style\.AppTheme\)/,
+        (line) => `// ${line}`,
+      ),
+      ["android.os.Bundle", "com.zoontek.rnbootsplash.RNBootSplash"],
+      language === "java",
+    );
+
+    // indented with 4 spaces
+    const withInit = mergeContents({
+      src: withImports,
+      comment: "    //",
+      tag: getTag("init"),
+      offset: 0,
+      anchor: /super\.onCreate\(null\)/,
+      newSrc:
+        "    RNBootSplash.init(this, R.style.BootTheme)" +
+        (language === "java" ? ";" : ""),
+    });
+
+    if (!withInit.didMerge) {
+      logMalformedFileError(`MainActivity.${language}`);
+      return config;
+    }
+
+    return {
+      ...config,
+      modResults: {
+        ...modResults,
+        contents: withInit.contents,
+      },
+    };
+  });
+
 const withBootSplash: ConfigPlugin<Props> = (config, props) => {
   // TODO: use config.platforms
   // TODO: transform props here
@@ -128,6 +173,7 @@ const withBootSplash: ConfigPlugin<Props> = (config, props) => {
     [withBootSplashAppDelegate, props],
     [withBootSplashAndroidStyles, props],
     [withBootSplashAndroidManifest, props],
+    [withBootSplashMainActivity, props],
   ]);
 };
 
