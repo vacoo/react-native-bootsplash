@@ -12,6 +12,7 @@ import { assignColorValue } from "@expo/config-plugins/build/android/Colors";
 import { addImports } from "@expo/config-plugins/build/android/codeMod";
 import { mergeContents } from "@expo/config-plugins/build/utils/generateCode";
 import { dedent } from "ts-dedent";
+import { withBootSplashAddon } from "./addon";
 import { parseColor } from "./generate";
 
 const PACKAGE_NAME = "react-native-bootsplash";
@@ -192,7 +193,7 @@ const withBootSplashAndroidColors: ConfigPlugin<Props> = (
 
 const withBootSplash: ConfigPlugin<Props> = (config, props) => {
   // TODO: use config.platforms
-  // TODO: transform + validate props
+  // TODO: transform + validate props (using the same logic as the CLI one)
 
   return withPlugins(config, [
     [withBootSplashAppDelegate, props],
@@ -201,6 +202,7 @@ const withBootSplash: ConfigPlugin<Props> = (config, props) => {
     [withBootSplashAndroidManifest, props],
     [withBootSplashMainActivity, props],
     [withBootSplashAndroidColors, props],
+    [withBootSplashAddon, props],
   ]);
 };
 
