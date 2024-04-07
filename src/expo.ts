@@ -4,6 +4,7 @@ import {
   withAndroidManifest,
   withAndroidStyles,
   withAppDelegate,
+  withInfoPlist,
   withMainActivity,
   withPlugins,
 } from "@expo/config-plugins";
@@ -76,6 +77,12 @@ const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
         contents: withRootView.contents,
       },
     };
+  });
+
+const withBootSplashInfoPlist: ConfigPlugin<Props> = (config, _props) =>
+  withInfoPlist(config, (config) => {
+    config.modResults["UILaunchStoryboardName"] = "BootSplash.storyboard";
+    return config;
   });
 
 const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, { brand }) =>
@@ -189,6 +196,7 @@ const withBootSplash: ConfigPlugin<Props> = (config, props) => {
 
   return withPlugins(config, [
     [withBootSplashAppDelegate, props],
+    [withBootSplashInfoPlist, props],
     [withBootSplashAndroidStyles, props],
     [withBootSplashAndroidManifest, props],
     [withBootSplashMainActivity, props],
