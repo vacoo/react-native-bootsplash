@@ -70,7 +70,7 @@ const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
     };
   });
 
-const withBootSplashStylesXml: ConfigPlugin<Props> = (config, { brand }) =>
+const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, { brand }) =>
   withAndroidStyles(config, (config) => {
     const item = [
       {
@@ -108,7 +108,7 @@ const withBootSplash: ConfigPlugin<Props> = (config, props) => {
 
   return withPlugins(config, [
     [withBootSplashAppDelegate, props],
-    [withBootSplashStylesXml, props],
+    [withBootSplashAndroidStyles, props],
   ]);
 };
 
