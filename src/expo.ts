@@ -1,5 +1,6 @@
 import {
   ConfigPlugin,
+  withAndroidManifest,
   withAndroidStyles,
   withAppDelegate,
   withPlugins,
@@ -102,6 +103,23 @@ const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, { brand }) =>
     return config;
   });
 
+const withBootSplashAndroidManifest: ConfigPlugin<Props> = (config, _props) =>
+  withAndroidManifest(config, (config) => {
+    config.modResults.manifest.application?.forEach((application) => {
+      if (application.$["android:name"] === ".MainApplication") {
+        const { activity } = application;
+
+        activity?.forEach((activity) => {
+          if (activity.$["android:name"] === ".MainActivity") {
+            activity.$["android:theme"] = "@style/BootTheme";
+          }
+        });
+      }
+    });
+
+    return config;
+  });
+
 const withBootSplash: ConfigPlugin<Props> = (config, props) => {
   // TODO: use config.platforms
   // TODO: transform props here
@@ -109,6 +127,7 @@ const withBootSplash: ConfigPlugin<Props> = (config, props) => {
   return withPlugins(config, [
     [withBootSplashAppDelegate, props],
     [withBootSplashAndroidStyles, props],
+    [withBootSplashAndroidManifest, props],
   ]);
 };
 
