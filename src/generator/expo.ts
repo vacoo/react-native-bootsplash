@@ -21,11 +21,16 @@ import { withBootSplashAddon } from "./addon";
 const PACKAGE_NAME = "react-native-bootsplash";
 
 type Props = {
+  assetsOutput?: string;
   background?: string;
   brand?: string;
+  brandWidth?: number;
   darkBackground?: string;
+  darkBrand?: string;
+  darkLogo?: string;
   licenseKey?: string;
   logo?: string;
+  logoWidth?: number;
 };
 
 const getTag = (name: string) => `${PACKAGE_NAME}-${name}`;
@@ -211,7 +216,7 @@ const withBootSplashAndroidColors: ConfigPlugin<Props> = (
   });
 
 const withBootSplash: ConfigPlugin<Props> = (config, props) => {
-  // TODO: use config.platforms
+  // TODO: throw if logo is not defined
   // TODO: transform + validate props (using the same logic as the CLI one)
 
   const { platforms = [] } = config;
