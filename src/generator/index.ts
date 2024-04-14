@@ -18,7 +18,7 @@ import * as prettier from "prettier/standalone";
 import sharp, { Sharp } from "sharp";
 import { dedent } from "ts-dedent";
 import formatXml, { XMLFormatterOptions } from "xml-formatter";
-import { Manifest } from ".";
+import { Manifest } from "..";
 
 const workingPath = process.env.INIT_CWD ?? process.env.PWD ?? process.cwd();
 

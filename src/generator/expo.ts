@@ -15,8 +15,8 @@ import { addImports } from "@expo/config-plugins/build/android/codeMod";
 import { mergeContents } from "@expo/config-plugins/build/utils/generateCode";
 import path from "path";
 import { dedent } from "ts-dedent";
+import { parseColor } from ".";
 import { withBootSplashAddon } from "./addon";
-import { parseColor } from "./generate";
 
 const PACKAGE_NAME = "react-native-bootsplash";
 
