@@ -1,5 +1,6 @@
 import {
   ConfigPlugin,
+  IOSConfig,
   withAndroidColors,
   withAndroidManifest,
   withAndroidStyles,
@@ -7,10 +8,12 @@ import {
   withInfoPlist,
   withMainActivity,
   withPlugins,
+  withXcodeProject,
 } from "@expo/config-plugins";
 import { assignColorValue } from "@expo/config-plugins/build/android/Colors";
 import { addImports } from "@expo/config-plugins/build/android/codeMod";
 import { mergeContents } from "@expo/config-plugins/build/utils/generateCode";
+import path from "path";
 import { dedent } from "ts-dedent";
 import { withBootSplashAddon } from "./addon";
 import { parseColor } from "./generate";
@@ -84,6 +87,21 @@ const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
 const withBootSplashInfoPlist: ConfigPlugin<Props> = (config, _props) =>
   withInfoPlist(config, (config) => {
     config.modResults["UILaunchStoryboardName"] = "BootSplash.storyboard";
+    return config;
+  });
+
+const withBootSplashStoryboard: ConfigPlugin<Props> = (config, _props) =>
+  withXcodeProject(config, (config) => {
+    const { platformProjectRoot, projectName = "" } = config.modRequest;
+    const xcodeProjectPath = path.join(platformProjectRoot, projectName);
+
+    IOSConfig.XcodeUtils.addResourceFileToGroup({
+      filepath: path.join(xcodeProjectPath, "BootSplash.storyboard"),
+      groupName: projectName,
+      project: config.modResults,
+      isBuildFile: true,
+    });
+
     return config;
   });
 
@@ -203,6 +221,7 @@ const withBootSplash: ConfigPlugin<Props> = (config, props) => {
     plugins.push(
       [withBootSplashAppDelegate, props],
       [withBootSplashInfoPlist, props],
+      [withBootSplashStoryboard, props],
     );
   }
 
