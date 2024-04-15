@@ -1,1 +1,2 @@
-module.exports = require("./dist/commonjs/expo");
+const { withBootSplashGenerate } = require("./dist/commonjs/generate");
+module.exports = withBootSplashGenerate;

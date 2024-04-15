@@ -1,5 +1,19 @@
 import murmurhash from "@emotion/hash";
-import { IOSConfig } from "@expo/config-plugins";
+import {
+  ConfigPlugin,
+  IOSConfig,
+  withAndroidColors,
+  withAndroidManifest,
+  withAndroidStyles,
+  withAppDelegate,
+  withInfoPlist,
+  withMainActivity,
+  withPlugins,
+  withXcodeProject,
+} from "@expo/config-plugins";
+import { assignColorValue } from "@expo/config-plugins/build/android/Colors";
+import { addImports } from "@expo/config-plugins/build/android/codeMod";
+import { mergeContents } from "@expo/config-plugins/build/utils/generateCode";
 import plist from "@expo/plist";
 import { findProjectRoot } from "@react-native-community/cli-tools";
 import {
@@ -386,7 +400,10 @@ export type AddonConfig = {
 };
 
 const requireAddon = ():
-  | { execute: (config: AddonConfig) => Promise<void> }
+  | {
+      execute: (config: AddonConfig) => Promise<void>;
+      withAddon: ConfigPlugin<Props>;
+    }
   | undefined => {
   try {
     return require("./addon"); // eslint-disable-line
@@ -877,4 +894,259 @@ ${pc.blue("┗━━━━━━━━━━━━━━━━━━━━━━
   }
 
   log.text(`\n💖  Thanks for using ${pc.underline("react-native-bootsplash")}`);
+};
+
+// Expo plugin
+
+const PACKAGE_NAME = "react-native-bootsplash";
+
+export type Props = {
+  assetsOutput?: string;
+  background?: string;
+  brand?: string;
+  brandWidth?: number;
+  darkBackground?: string;
+  darkBrand?: string;
+  darkLogo?: string;
+  licenseKey?: string; // TODO: Remove this from here
+  logo?: string;
+  logoWidth?: number;
+};
+
+const getTag = (name: string) => `${PACKAGE_NAME}-${name}`;
+
+const logMalformedFileError = (file: string) =>
+  console.error(
+    `ERROR: Cannot add ${PACKAGE_NAME} to the project's ${file} because it's malformed. Please report this with a copy of your project ${file}.`,
+  );
+
+const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
+  withAppDelegate(config, (config) => {
+    const { modResults } = config;
+    const { language } = modResults;
+
+    if (language !== "objc" && language !== "objcpp") {
+      throw new Error(
+        `Cannot setup ${PACKAGE_NAME} because the project AppDelegate is not a supported language: ${language}`,
+      );
+    }
+
+    const withHeader = mergeContents({
+      src: modResults.contents,
+      comment: "//",
+      tag: getTag("header"),
+      offset: 1,
+      anchor: /#import "AppDelegate\.h"/,
+      newSrc: '#import "RNBootSplash.h"',
+    });
+
+    const withRootView = mergeContents({
+      src: withHeader.contents,
+      comment: "//",
+      tag: getTag("init"),
+      offset: 0,
+      anchor: /@end/,
+      newSrc: dedent`
+        - (UIView *)createRootViewWithBridge:(RCTBridge *)bridge moduleName:(NSString *)moduleName initProps:(NSDictionary *)initProps {
+          UIView *rootView = [super createRootViewWithBridge:bridge moduleName:moduleName initProps:initProps];
+          [RNBootSplash initWithStoryboard:@"BootSplash" rootView:rootView];
+          return rootView;
+        }
+      `,
+    });
+
+    if (!withHeader.didMerge || !withRootView.didMerge) {
+      logMalformedFileError(`AppDelegate.${language === "objc" ? "m" : "mm"}`);
+      return config;
+    }
+
+    return {
+      ...config,
+      modResults: {
+        ...modResults,
+        contents: withRootView.contents,
+      },
+    };
+  });
+
+const withBootSplashInfoPlist: ConfigPlugin<Props> = (config, _props) =>
+  withInfoPlist(config, (config) => {
+    config.modResults["UILaunchStoryboardName"] = "BootSplash.storyboard";
+    return config;
+  });
+
+const withBootSplashStoryboard: ConfigPlugin<Props> = (config, _props) =>
+  withXcodeProject(config, (config) => {
+    const { platformProjectRoot, projectName = "" } = config.modRequest;
+    const xcodeProjectPath = path.join(platformProjectRoot, projectName);
+
+    IOSConfig.XcodeUtils.addResourceFileToGroup({
+      filepath: path.join(xcodeProjectPath, "BootSplash.storyboard"),
+      groupName: projectName,
+      project: config.modResults,
+      isBuildFile: true,
+    });
+
+    return config;
+  });
+
+const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, { brand }) =>
+  withAndroidStyles(config, (config) => {
+    const item = [
+      {
+        $: { name: "postBootSplashTheme" },
+        _: "@style/AppTheme",
+      },
+      {
+        $: { name: "bootSplashBackground" },
+        _: "@color/bootsplash_background",
+      },
+      {
+        $: { name: "bootSplashLogo" },
+        _: "@drawable/bootsplash_logo",
+      },
+    ];
+
+    if (brand != null) {
+      item.push({
+        $: { name: "bootSplashBrand" },
+        _: "@drawable/bootsplash_brand",
+      });
+    }
+
+    config.modResults.resources.style?.push({
+      item,
+      $: {
+        name: "BootTheme",
+        parent: "Theme.BootSplash",
+      },
+    });
+
+    return config;
+  });
+
+const withBootSplashAndroidManifest: ConfigPlugin<Props> = (config, _props) =>
+  withAndroidManifest(config, (config) => {
+    config.modResults.manifest.application?.forEach((application) => {
+      if (application.$["android:name"] === ".MainApplication") {
+        const { activity } = application;
+
+        activity?.forEach((activity) => {
+          if (activity.$["android:name"] === ".MainActivity") {
+            activity.$["android:theme"] = "@style/BootTheme";
+          }
+        });
+      }
+    });
+
+    return config;
+  });
+
+const withBootSplashMainActivity: ConfigPlugin<Props> = (config, _props) =>
+  withMainActivity(config, (config) => {
+    const { modResults } = config;
+    const { language } = modResults;
+
+    const withImports = addImports(
+      modResults.contents.replace(
+        /setTheme\(R\.style\.AppTheme\)/,
+        (line) => `// ${line}`,
+      ),
+      ["android.os.Bundle", "com.zoontek.rnbootsplash.RNBootSplash"],
+      language === "java",
+    );
+
+    // indented with 4 spaces
+    const withInit = mergeContents({
+      src: withImports,
+      comment: "    //",
+      tag: getTag("init"),
+      offset: 0,
+      anchor: /super\.onCreate\(null\)/,
+      newSrc:
+        "    RNBootSplash.init(this, R.style.BootTheme)" +
+        (language === "java" ? ";" : ""),
+    });
+
+    if (!withInit.didMerge) {
+      logMalformedFileError(`MainActivity.${language}`);
+      return config;
+    }
+
+    return {
+      ...config,
+      modResults: {
+        ...modResults,
+        contents: withInit.contents,
+      },
+    };
+  });
+
+const withBootSplashAndroidColors: ConfigPlugin<Props> = (
+  config,
+  { background = "#fff" },
+) =>
+  withAndroidColors(config, (config) => {
+    config.modResults = assignColorValue(config.modResults, {
+      name: "bootsplash_background",
+      value: parseColor(background).hex.toLowerCase(),
+    });
+
+    return config;
+  });
+
+export const withBootSplashGenerate: ConfigPlugin<Props> = (
+  config,
+  props = {},
+) => {
+  // TODO: transform + validate props (using the same logic as the CLI one)
+  // console.log(config, props);
+
+  // TO REFACTO (COMMON STUFF)
+  const [nodeStringVersion = ""] = process.versions.node.split(".");
+  const nodeVersion = parseInt(nodeStringVersion, 10);
+
+  if (!isNaN(nodeVersion) && nodeVersion < 18) {
+    log.error("Requires Node 18 (or higher)");
+    process.exit(1);
+  }
+
+  // ONLY BLOCK NOT IN COMMON
+  if (props.logo == null) {
+    log.error(`${PACKAGE_NAME}: logo option must be set`);
+    process.exit(1);
+  }
+
+  // const workingPath = process.env.INIT_CWD ?? process.env.PWD ?? process.cwd();
+  // END OF COMMON
+
+  const { platforms = [] } = config;
+  const plugins: [plugin: ConfigPlugin<Props>, props: Props][] = [];
+
+  if (platforms.includes("ios")) {
+    plugins.push(
+      [withBootSplashAppDelegate, props],
+      [withBootSplashInfoPlist, props],
+      [withBootSplashStoryboard, props],
+    );
+  }
+
+  if (platforms.includes("android")) {
+    plugins.push(
+      [withBootSplashAndroidStyles, props],
+      [withBootSplashAndroidManifest, props],
+      [withBootSplashMainActivity, props],
+      [withBootSplashAndroidColors, props],
+    );
+  }
+
+  if (props.licenseKey != null) {
+    const addon = requireAddon();
+
+    if (addon != null) {
+      plugins.push([addon.withAddon, props]);
+    }
+  }
+
+  return withPlugins(config, plugins);
 };
