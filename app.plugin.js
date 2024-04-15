@@ -1,1 +1,1 @@
-module.exports = require("./dist/commonjs/generator/expo");
+module.exports = require("./dist/commonjs/expo");

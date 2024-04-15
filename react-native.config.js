@@ -71,7 +71,7 @@ const generateBootSplash = {
     },
   ],
   func: ([logo], { project: { android, ios } }, args) => {
-    const { generate } = require("./dist/commonjs/generator");
+    const { generate } = require("./dist/commonjs/generate");
 
     generate({ android, ios, logo, ...args }).catch((error) => {
       console.error(error);

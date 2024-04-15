@@ -15,8 +15,8 @@ import { addImports } from "@expo/config-plugins/build/android/codeMod";
 import { mergeContents } from "@expo/config-plugins/build/utils/generateCode";
 import path from "path";
 import { dedent } from "ts-dedent";
-import { parseColor } from ".";
 import { withBootSplashAddon } from "./addon";
+import { log, parseColor } from "./generate";
 
 const PACKAGE_NAME = "react-native-bootsplash";
 
@@ -28,7 +28,7 @@ type Props = {
   darkBackground?: string;
   darkBrand?: string;
   darkLogo?: string;
-  licenseKey?: string;
+  licenseKey?: string; // TODO: Remove this from here
   logo?: string;
   logoWidth?: number;
 };
@@ -215,9 +215,27 @@ const withBootSplashAndroidColors: ConfigPlugin<Props> = (
     return config;
   });
 
-const withBootSplash: ConfigPlugin<Props> = (config, props) => {
-  // TODO: throw if logo is not defined
+const withBootSplash: ConfigPlugin<Props> = (config, props = {}) => {
   // TODO: transform + validate props (using the same logic as the CLI one)
+  // console.log(config, props);
+
+  // TO REFACTO (COMMON STUFF)
+  const [nodeStringVersion = ""] = process.versions.node.split(".");
+  const nodeVersion = parseInt(nodeStringVersion, 10);
+
+  if (!isNaN(nodeVersion) && nodeVersion < 18) {
+    log.error("Requires Node 18 (or higher)");
+    process.exit(1);
+  }
+
+  // ONLY BLOCK NOT IN COMMON
+  if (props.logo == null) {
+    log.error(`${PACKAGE_NAME}: logo option must be set`);
+    process.exit(1);
+  }
+
+  const workingPath = process.env.INIT_CWD ?? process.env.PWD ?? process.cwd();
+  // END OF COMMON
 
   const { platforms = [] } = config;
   const plugins: [plugin: ConfigPlugin<Props>, props: Props][] = [];
