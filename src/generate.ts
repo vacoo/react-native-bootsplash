@@ -971,7 +971,7 @@ const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
 
 const withBootSplashInfoPlist: ConfigPlugin<Props> = (config, _props) =>
   withInfoPlist(config, (config) => {
-    config.modResults["UILaunchStoryboardName"] = "BootSplash.storyboard";
+    config.modResults["UILaunchStoryboardName"] = "BootSplash";
     return config;
   });
 
