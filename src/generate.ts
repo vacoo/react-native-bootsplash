@@ -287,21 +287,43 @@ const ensureSupportedFormat = async (
   }
 };
 
+const hasAcceptedAndroidDimensions = ({
+  brandHeight,
+  brandWidth,
+  logoHeight,
+  logoWidth,
+}: {
+  brandHeight: number;
+  brandWidth: number;
+  logoHeight: number;
+  logoWidth: number;
+}): boolean => {
+  if (logoWidth > 288 || logoHeight > 288) {
+    log.warn(
+      "Logo size exceeding 288x288dp will be cropped by Android. Skipping Android assets generation…",
+    );
+
+    return false;
+  }
+
+  if (brandHeight > 80 || brandWidth > 200) {
+    log.warn(
+      "Brand size exceeding 200x80dp will be cropped by Android. Skipping Android assets generation…",
+    );
+
+    return false;
+  }
+
+  if (logoWidth > 192 || logoHeight > 192) {
+    log.warn(`Logo size exceeds 192x192dp. It might be cropped by Android.`);
+  }
+
+  return true;
+};
+
 const getAndroidResPath = (
   android: AndroidProjectConfig,
-  {
-    brandHeight,
-    brandWidth,
-    flavor,
-    logoHeight,
-    logoWidth,
-  }: {
-    brandHeight: number;
-    brandWidth: number;
-    flavor: string;
-    logoHeight: number;
-    logoWidth: number;
-  },
+  flavor: string,
 ): string | undefined => {
   const androidResPath = path.resolve(
     android.sourceDir,
@@ -318,19 +340,7 @@ const getAndroidResPath = (
         androidResPath,
       )} directory found. Skipping Android assets generation…`,
     );
-  } else if (logoWidth > 288 || logoHeight > 288) {
-    log.warn(
-      "Logo size exceeding 288x288dp will be cropped by Android. Skipping Android assets generation…",
-    );
-  } else if (brandHeight > 80 || brandWidth > 200) {
-    log.warn(
-      "Brand size exceeding 200x80dp will be cropped by Android. Skipping Android assets generation…",
-    );
   } else {
-    if (logoWidth > 192 || logoHeight > 192) {
-      log.warn(`Logo size exceeds 192x192dp. It might be cropped by Android.`);
-    }
-
     return androidResPath;
   }
 };
@@ -473,11 +483,22 @@ export const generate = async ({
   const darkBrand = darkBrandPath != null ? sharp(darkBrandPath) : undefined;
 
   const background = parseColor(args.background);
+  const darkBackground =
+    args.darkBackground != null ? parseColor(args.darkBackground) : undefined;
+
   const logoWidth = args.logoWidth - (args.logoWidth % 2);
   const brandWidth = args.brandWidth - (args.brandWidth % 2);
 
-  const darkBackground =
-    args.darkBackground != null ? parseColor(args.darkBackground) : undefined;
+  if (logoWidth < args.logoWidth) {
+    log.warn(
+      `Logo width must be a multiple of 2. It has been rounded to ${logoWidth}dp.`,
+    );
+  }
+  if (brandWidth < args.brandWidth) {
+    log.warn(
+      `Brand width must be a multiple of 2. It has been rounded to ${brandWidth}dp.`,
+    );
+  }
 
   const executeAddon =
     brand != null ||
@@ -531,26 +552,9 @@ export const generate = async ({
       .then((buffer) => sharp(buffer).metadata())
       .then(({ height = 0 }) => Math.round(height))) ?? 0;
 
-  if (logoWidth < args.logoWidth) {
-    log.warn(
-      `Logo width must be a multiple of 2. It has been rounded to ${logoWidth}dp.`,
-    );
-  }
-  if (brandWidth < args.brandWidth) {
-    log.warn(
-      `Brand width must be a multiple of 2. It has been rounded to ${brandWidth}dp.`,
-    );
-  }
-
   const androidResPath =
     platforms.includes("android") && android != null
-      ? getAndroidResPath(android, {
-          brandHeight,
-          brandWidth,
-          flavor,
-          logoHeight,
-          logoWidth,
-        })
+      ? getAndroidResPath(android, flavor)
       : undefined;
 
   const iosProjectPath =
@@ -562,7 +566,15 @@ export const generate = async ({
     ? getHtmlTemplatePath(html)
     : undefined;
 
-  if (androidResPath != null) {
+  if (
+    androidResPath != null &&
+    hasAcceptedAndroidDimensions({
+      brandHeight,
+      brandWidth,
+      logoHeight,
+      logoWidth,
+    })
+  ) {
     log.title("🤖", "Android");
 
     const valuesPath = path.resolve(androidResPath, "values");
