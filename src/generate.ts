@@ -289,51 +289,16 @@ const ensureSupportedFormat = async (
   }
 };
 
-const hasAcceptedAndroidDimensions = ({
-  brandHeight,
-  brandWidth,
-  logoHeight,
-  logoWidth,
+const getAndroidResPath = ({
+  appName,
+  flavor,
+  sourceDir,
 }: {
-  brandHeight: number;
-  brandWidth: number;
-  logoHeight: number;
-  logoWidth: number;
-}): boolean => {
-  if (logoWidth > 288 || logoHeight > 288) {
-    log.warn(
-      "Logo size exceeding 288x288dp will be cropped by Android. Skipping Android assets generation…",
-    );
-
-    return false;
-  }
-
-  if (brandHeight > 80 || brandWidth > 200) {
-    log.warn(
-      "Brand size exceeding 200x80dp will be cropped by Android. Skipping Android assets generation…",
-    );
-
-    return false;
-  }
-
-  if (logoWidth > 192 || logoHeight > 192) {
-    log.warn(`Logo size exceeds 192x192dp. It might be cropped by Android.`);
-  }
-
-  return true;
-};
-
-const getAndroidResPath = (
-  android: AndroidProjectConfig,
-  flavor: string,
-): string | undefined => {
-  const androidResPath = path.resolve(
-    android.sourceDir,
-    android.appName,
-    "src",
-    flavor,
-    "res",
-  );
+  appName: string;
+  flavor: string;
+  sourceDir: string;
+}): string | undefined => {
+  const androidResPath = path.resolve(sourceDir, appName, "src", flavor, "res");
 
   if (!hfs.exists(androidResPath)) {
     log.warn(
@@ -347,15 +312,14 @@ const getAndroidResPath = (
   }
 };
 
-const getIOSProjectPath = (ios: IOSProjectConfig): string | undefined => {
-  if (ios.xcodeProject == null) {
-    log.warn("No Xcode project found. Skipping iOS assets generation…");
-    return;
-  }
-
-  const iosProjectPath = path
-    .resolve(ios.sourceDir, ios.xcodeProject.name)
-    .replace(/\.(xcodeproj|xcworkspace)$/, "");
+const getIOSProjectPath = ({
+  projectName,
+  sourceDir,
+}: {
+  projectName: string;
+  sourceDir: string;
+}): string | undefined => {
+  const iosProjectPath = path.resolve(sourceDir, projectName);
 
   if (!hfs.exists(iosProjectPath)) {
     log.warn(
@@ -384,15 +348,6 @@ const getHtmlTemplatePath = (html: string): string | undefined => {
   }
 };
 
-const getEnvFileLicenseKey = () => {
-  const absoluteDotenvFile = getEnv(projectRoot).files[0];
-
-  if (absoluteDotenvFile != null) {
-    const env = dotenv.parse(hfs.text(absoluteDotenvFile));
-    return env["BOOTSPLASH_LICENSE_KEY"];
-  }
-};
-
 type CommonArgs = {
   platforms: string[];
   logo: string;
@@ -411,6 +366,8 @@ type CommonArgs = {
 };
 
 const transformArgs = (args: CommonArgs) => {
+  const { flavor, licenseKey } = args;
+
   const [nodeStringVersion = ""] = process.versions.node.split(".");
   const nodeVersion = parseInt(nodeStringVersion, 10);
 
@@ -472,8 +429,6 @@ const transformArgs = (args: CommonArgs) => {
     darkLogo != null ||
     darkBrand != null;
 
-  const licenseKey = args.licenseKey ?? getEnvFileLicenseKey();
-
   if (licenseKey != null && !executeAddon) {
     log.warn(
       `You specified a license key but none of the options that requires it.`,
@@ -512,6 +467,7 @@ const transformArgs = (args: CommonArgs) => {
     darkLogo,
     darkLogoPath,
     executeAddon,
+    flavor,
     htmlTemplatePath,
     licenseKey,
     logo,
@@ -520,7 +476,9 @@ const transformArgs = (args: CommonArgs) => {
   };
 };
 
-export type AddonConfig = ReturnType<typeof transformArgs> & {
+export type Props = ReturnType<typeof transformArgs>;
+
+export type AddonProps = Props & {
   androidResPath: string | undefined;
   iosProjectPath: string | undefined;
 
@@ -530,7 +488,7 @@ export type AddonConfig = ReturnType<typeof transformArgs> & {
 
 const requireAddon = ():
   | {
-      execute: (config: AddonConfig) => Promise<void>;
+      execute: (config: AddonProps) => Promise<void>;
       withAddon: ConfigPlugin<Props>;
     }
   | undefined => {
@@ -539,6 +497,184 @@ const requireAddon = ():
   } catch {
     return;
   }
+};
+
+export const getImageHeight = (
+  image: Sharp | undefined,
+  width: number,
+): Promise<number> => {
+  if (image == null) {
+    return Promise.resolve(0);
+  }
+
+  return image
+    .clone()
+    .resize(width)
+    .toBuffer()
+    .then((buffer) => sharp(buffer).metadata())
+    .then(({ height = 0 }) => Math.round(height));
+};
+
+const generateAndroidAssets = async ({
+  androidResPath,
+  logo,
+  logoWidth,
+}: {
+  androidResPath: string;
+  logo: Sharp;
+  logoWidth: number;
+}) => {
+  const logoHeight = await getImageHeight(logo, logoWidth);
+
+  if (logoWidth > 288 || logoHeight > 288) {
+    log.warn(
+      "Logo size exceeding 288x288dp will be cropped by Android. Skipping Android assets generation…",
+    );
+
+    return [];
+  }
+
+  if (logoWidth > 192 || logoHeight > 192) {
+    log.warn(`Logo size exceeds 192x192dp. It might be cropped by Android.`);
+  }
+
+  return Promise.all(
+    [
+      { ratio: 1, suffix: "mdpi" },
+      { ratio: 1.5, suffix: "hdpi" },
+      { ratio: 2, suffix: "xhdpi" },
+      { ratio: 3, suffix: "xxhdpi" },
+      { ratio: 4, suffix: "xxxhdpi" },
+    ].map(({ ratio, suffix }) => {
+      const drawableDirPath = path.resolve(
+        androidResPath,
+        `drawable-${suffix}`,
+      );
+
+      hfs.ensureDir(drawableDirPath);
+
+      // https://developer.android.com/develop/ui/views/launch/splash-screen#dimensions
+      const canvasSize = 288 * ratio;
+
+      // https://sharp.pixelplumbing.com/api-constructor
+      const canvas = sharp({
+        create: {
+          width: canvasSize,
+          height: canvasSize,
+          channels: 4,
+          background: {
+            r: 255,
+            g: 255,
+            b: 255,
+            alpha: 0,
+          },
+        },
+      });
+
+      const filePath = path.resolve(drawableDirPath, "bootsplash_logo.png");
+
+      return logo
+        .clone()
+        .resize(logoWidth * ratio)
+        .toBuffer()
+        .then((input) =>
+          canvas.composite([{ input }]).png({ quality: 100 }).toFile(filePath),
+        )
+        .then(() => {
+          logWrite(filePath, {
+            width: canvasSize,
+            height: canvasSize,
+          });
+        });
+    }),
+  );
+};
+
+const generateIosAssets = async ({
+  background,
+  iosProjectPath,
+  logo,
+  logoHeight,
+  logoWidth,
+}: {
+  background: Color;
+  iosProjectPath: string;
+  logo: Sharp;
+  logoHeight: number;
+  logoWidth: number;
+}) => {
+  const storyboardPath = path.resolve(iosProjectPath, "BootSplash.storyboard");
+
+  writeXml(
+    storyboardPath,
+    getStoryboard({
+      logoHeight,
+      logoWidth,
+      background: background.rgb,
+    }),
+    { whiteSpaceAtEndOfSelfclosingTag: false },
+  );
+
+  const imageSetPath = path.resolve(
+    iosProjectPath,
+    "Images.xcassets",
+    "BootSplashLogo.imageset",
+  );
+
+  hfs.ensureDir(imageSetPath);
+  cleanIOSAssets(imageSetPath, "bootsplash_logo");
+
+  const logoFileName = await getIOSAssetFileName({
+    name: "bootsplash_logo",
+    image: logo,
+    width: logoWidth,
+  });
+
+  writeJson(path.resolve(imageSetPath, "Contents.json"), {
+    images: [
+      {
+        idiom: "universal",
+        filename: `${logoFileName}.png`,
+        scale: "1x",
+      },
+      {
+        idiom: "universal",
+        filename: `${logoFileName}@2x.png`,
+        scale: "2x",
+      },
+      {
+        idiom: "universal",
+        filename: `${logoFileName}@3x.png`,
+        scale: "3x",
+      },
+    ],
+    info: {
+      author: "xcode",
+      version: 1,
+    },
+  });
+
+  return Promise.all(
+    [
+      { ratio: 1, suffix: "" },
+      { ratio: 2, suffix: "@2x" },
+      { ratio: 3, suffix: "@3x" },
+    ].map(({ ratio, suffix }) => {
+      const filePath = path.resolve(
+        imageSetPath,
+        `${logoFileName}${suffix}.png`,
+      );
+
+      return logo
+        .clone()
+        .resize(logoWidth * ratio)
+        .png({ quality: 100 })
+        .toFile(filePath)
+        .then(({ width, height }) => {
+          logWrite(filePath, { width, height });
+        });
+    }),
+  );
 };
 
 export const generate = async ({
@@ -571,41 +707,36 @@ export const generate = async ({
   await ensureSupportedFormat("Brand", brand);
   await ensureSupportedFormat("Dark brand", darkBrand);
 
-  const logoHeight = await logo
-    .clone()
-    .resize(logoWidth)
-    .toBuffer()
-    .then((buffer) => sharp(buffer).metadata())
-    .then(({ height = 0 }) => Math.round(height));
-
-  const brandHeight =
-    (await brand
-      ?.clone()
-      .resize(brandWidth)
-      .toBuffer()
-      .then((buffer) => sharp(buffer).metadata())
-      .then(({ height = 0 }) => Math.round(height))) ?? 0;
+  const logoHeight = await getImageHeight(logo, logoWidth);
+  const brandHeight = await getImageHeight(brand, brandWidth);
 
   const androidResPath =
     args.platforms.includes("android") && android != null
-      ? getAndroidResPath(android, args.flavor)
+      ? getAndroidResPath({
+          appName: android.appName,
+          flavor: args.flavor,
+          sourceDir: android.sourceDir,
+        })
       : undefined;
+
+  const projectName = ios?.xcodeProject?.name;
+
+  if (ios != null && projectName == null) {
+    log.warn("No Xcode project found. Skipping iOS assets generation…");
+  }
 
   const iosProjectPath =
-    args.platforms.includes("ios") && ios != null
-      ? getIOSProjectPath(ios)
+    args.platforms.includes("ios") && ios != null && projectName != null
+      ? getIOSProjectPath({
+          sourceDir: ios.sourceDir,
+          projectName: projectName.replace(/\.(xcodeproj|xcworkspace)$/, ""),
+        })
       : undefined;
 
-  if (
-    androidResPath != null &&
-    hasAcceptedAndroidDimensions({
-      brandHeight,
-      brandWidth,
-      logoHeight,
-      logoWidth,
-    })
-  ) {
+  if (androidResPath != null) {
     log.title("🤖", "Android");
+
+    await generateAndroidAssets({ androidResPath, logo, logoWidth });
 
     const valuesPath = path.resolve(androidResPath, "values");
     hfs.ensureDir(valuesPath);
@@ -630,79 +761,18 @@ export const generate = async ({
     } else {
       writeXml(colorsXmlPath, `<resources>${colorsXmlEntry}</resources>`);
     }
-
-    await Promise.all(
-      [
-        { ratio: 1, suffix: "mdpi" },
-        { ratio: 1.5, suffix: "hdpi" },
-        { ratio: 2, suffix: "xhdpi" },
-        { ratio: 3, suffix: "xxhdpi" },
-        { ratio: 4, suffix: "xxxhdpi" },
-      ].map(({ ratio, suffix }) => {
-        const drawableDirPath = path.resolve(
-          androidResPath,
-          `drawable-${suffix}`,
-        );
-
-        hfs.ensureDir(drawableDirPath);
-
-        // https://developer.android.com/develop/ui/views/launch/splash-screen#dimensions
-        const canvasSize = 288 * ratio;
-
-        // https://sharp.pixelplumbing.com/api-constructor
-        const canvas = sharp({
-          create: {
-            width: canvasSize,
-            height: canvasSize,
-            channels: 4,
-            background: {
-              r: 255,
-              g: 255,
-              b: 255,
-              alpha: 0,
-            },
-          },
-        });
-
-        const filePath = path.resolve(drawableDirPath, "bootsplash_logo.png");
-
-        return logo
-          .clone()
-          .resize(logoWidth * ratio)
-          .toBuffer()
-          .then((input) =>
-            canvas
-              .composite([{ input }])
-              .png({ quality: 100 })
-              .toFile(filePath),
-          )
-          .then(() => {
-            logWrite(filePath, {
-              width: canvasSize,
-              height: canvasSize,
-            });
-          });
-      }),
-    );
   }
 
   if (iosProjectPath != null) {
     log.title("🍏", "iOS");
 
-    const storyboardPath = path.resolve(
+    await generateIosAssets({
+      background,
       iosProjectPath,
-      "BootSplash.storyboard",
-    );
-
-    writeXml(
-      storyboardPath,
-      getStoryboard({
-        logoHeight,
-        logoWidth,
-        background: background.rgb,
-      }),
-      { whiteSpaceAtEndOfSelfclosingTag: false },
-    );
+      logo,
+      logoHeight,
+      logoWidth,
+    });
 
     addFileToXcodeProject(
       path.join(path.basename(iosProjectPath), "BootSplash.storyboard"),
@@ -729,67 +799,6 @@ export const generate = async ({
 
     hfs.write(infoPlistPath, formatted);
     logWrite(infoPlistPath);
-
-    const imageSetPath = path.resolve(
-      iosProjectPath,
-      "Images.xcassets",
-      "BootSplashLogo.imageset",
-    );
-
-    hfs.ensureDir(imageSetPath);
-    cleanIOSAssets(imageSetPath, "bootsplash_logo");
-
-    const logoFileName = await getIOSAssetFileName({
-      name: "bootsplash_logo",
-      image: logo,
-      width: logoWidth,
-    });
-
-    writeJson(path.resolve(imageSetPath, "Contents.json"), {
-      images: [
-        {
-          idiom: "universal",
-          filename: `${logoFileName}.png`,
-          scale: "1x",
-        },
-        {
-          idiom: "universal",
-          filename: `${logoFileName}@2x.png`,
-          scale: "2x",
-        },
-        {
-          idiom: "universal",
-          filename: `${logoFileName}@3x.png`,
-          scale: "3x",
-        },
-      ],
-      info: {
-        author: "xcode",
-        version: 1,
-      },
-    });
-
-    await Promise.all(
-      [
-        { ratio: 1, suffix: "" },
-        { ratio: 2, suffix: "@2x" },
-        { ratio: 3, suffix: "@3x" },
-      ].map(({ ratio, suffix }) => {
-        const filePath = path.resolve(
-          imageSetPath,
-          `${logoFileName}${suffix}.png`,
-        );
-
-        return logo
-          .clone()
-          .resize(logoWidth * ratio)
-          .png({ quality: 100 })
-          .toFile(filePath)
-          .then(({ width, height }) => {
-            logWrite(filePath, { width, height });
-          });
-      }),
-    );
   }
 
   if (htmlTemplatePath != null) {
@@ -923,19 +932,6 @@ ${pc.blue("┗━━━━━━━━━━━━━━━━━━━━━━
 
 const PACKAGE_NAME = "react-native-bootsplash";
 
-export type Props = {
-  assetsOutput?: string;
-  background?: string;
-  brand?: string;
-  brandWidth?: number;
-  darkBackground?: string;
-  darkBrand?: string;
-  darkLogo?: string;
-  licenseKey?: string;
-  logo?: string;
-  logoWidth?: number;
-};
-
 const getTag = (name: string) => `${PACKAGE_NAME}-${name}`;
 
 const logMalformedFileError = (file: string) =>
@@ -943,7 +939,7 @@ const logMalformedFileError = (file: string) =>
     `ERROR: Cannot add ${PACKAGE_NAME} to the project's ${file} because it's malformed. Please report this with a copy of your project ${file}.`,
   );
 
-const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
+const withBootSplashAppDelegate: ConfigPlugin<Props> = (config) =>
   withAppDelegate(config, (config) => {
     const { modResults } = config;
     const { language } = modResults;
@@ -992,13 +988,13 @@ const withBootSplashAppDelegate: ConfigPlugin<Props> = (config, _props) =>
     };
   });
 
-const withBootSplashInfoPlist: ConfigPlugin<Props> = (config, _props) =>
+const withBootSplashInfoPlist: ConfigPlugin<Props> = (config) =>
   withInfoPlist(config, (config) => {
     config.modResults["UILaunchStoryboardName"] = "BootSplash";
     return config;
   });
 
-const withBootSplashStoryboard: ConfigPlugin<Props> = (config, _props) =>
+const withBootSplashStoryboard: ConfigPlugin<Props> = (config) =>
   withXcodeProject(config, (config) => {
     const { platformProjectRoot, projectName = "" } = config.modRequest;
     const xcodeProjectPath = path.join(platformProjectRoot, projectName);
@@ -1048,7 +1044,7 @@ const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, { brand }) =>
     return config;
   });
 
-const withBootSplashAndroidManifest: ConfigPlugin<Props> = (config, _props) =>
+const withBootSplashAndroidManifest: ConfigPlugin<Props> = (config) =>
   withAndroidManifest(config, (config) => {
     config.modResults.manifest.application?.forEach((application) => {
       if (application.$["android:name"] === ".MainApplication") {
@@ -1065,7 +1061,7 @@ const withBootSplashAndroidManifest: ConfigPlugin<Props> = (config, _props) =>
     return config;
   });
 
-const withBootSplashMainActivity: ConfigPlugin<Props> = (config, _props) =>
+const withBootSplashMainActivity: ConfigPlugin<Props> = (config) =>
   withMainActivity(config, (config) => {
     const { modResults } = config;
     const { language } = modResults;
@@ -1107,97 +1103,146 @@ const withBootSplashMainActivity: ConfigPlugin<Props> = (config, _props) =>
 
 const withBootSplashAndroidColors: ConfigPlugin<Props> = (
   config,
-  { background = "#fff" },
+  { background },
 ) =>
   withAndroidColors(config, (config) => {
     config.modResults = assignColorValue(config.modResults, {
       name: "bootsplash_background",
-      value: parseColor(background).hex.toLowerCase(),
+      value: background.hex.toLowerCase(),
     });
 
     return config;
   });
 
-const withAndroidBootSplashAssets: ConfigPlugin<Props> = (config, _props) =>
+const withAndroidBootSplashAssets: ConfigPlugin<Props> = (
+  config,
+  { logo, logoWidth, flavor },
+) =>
   withDangerousMod(config, [
     "android",
-    /*async*/ (config) => {
-      console.log(config.modRequest);
+    async (config) => {
+      const { platformProjectRoot } = config.modRequest;
 
-      // {
-      //   projectRoot: '/Users/zoontek/Projects/ExpoBootSplashPlugin',
-      //   projectName: undefined,
-      //   platformProjectRoot: '/Users/zoontek/Projects/ExpoBootSplashPlugin/android',
-      //   platform: 'android',
-      //   modName: 'dangerous',
-      //   introspect: false,
-      //   ignoreExistingNativeFiles: false
-      // }
+      await ensureSupportedFormat("Logo", logo);
 
-      // const iosNamedProjectRoot = IOSConfig.Paths.getSourceRoot(
-      //   config.modRequest.projectRoot,
-      // );
+      const androidResPath = getAndroidResPath({
+        appName: "app",
+        flavor,
+        sourceDir: platformProjectRoot,
+      });
+
+      if (androidResPath != null) {
+        await generateAndroidAssets({
+          androidResPath,
+          logo,
+          logoWidth,
+        });
+      }
 
       return config;
     },
   ]);
 
-const withIosBootSplashAssets: ConfigPlugin<Props> = (config, _props) =>
+const withIosBootSplashAssets: ConfigPlugin<Props> = (
+  config,
+  { background, logo, logoWidth },
+) =>
   withDangerousMod(config, [
     "ios",
-    /*async*/ (config) => {
-      console.log(config.modRequest);
+    async (config) => {
+      const { platformProjectRoot, projectName = "" } = config.modRequest;
 
-      // {
-      //   projectRoot: '/Users/zoontek/Projects/ExpoBootSplashPlugin',
-      //   projectName: 'BootSplashPlugin',
-      //   platformProjectRoot: '/Users/zoontek/Projects/ExpoBootSplashPlugin/ios',
-      //   platform: 'ios',
-      //   modName: 'dangerous',
-      //   introspect: false,
-      //   ignoreExistingNativeFiles: false
-      // }
+      await ensureSupportedFormat("Logo", logo);
 
-      // const iosNamedProjectRoot = IOSConfig.Paths.getSourceRoot(
-      //   config.modRequest.projectRoot,
-      // );
+      const iosProjectPath = getIOSProjectPath({
+        sourceDir: platformProjectRoot,
+        projectName,
+      });
+
+      if (iosProjectPath != null) {
+        const logoHeight = await getImageHeight(logo, logoWidth);
+
+        await generateIosAssets({
+          background,
+          iosProjectPath,
+          logo,
+          logoHeight,
+          logoWidth,
+        });
+      }
 
       return config;
     },
   ]);
 
-export const withBootSplashGenerate: ConfigPlugin<Props> = (
-  config,
-  props = {},
-) => {
-  // TODO: transform + validate props (using the same logic as the CLI one)
+const getEnvFileLicenseKey = () => {
+  const absoluteDotenvFile = getEnv(projectRoot).files[0];
 
-  // TO REFACTO (COMMON STUFF)
+  if (absoluteDotenvFile != null) {
+    const env = dotenv.parse(hfs.text(absoluteDotenvFile));
+    return env["BOOTSPLASH_LICENSE_KEY"];
+  }
+};
 
-  if (props.logo == null) {
-    log.error(`${PACKAGE_NAME}: logo option must be set`);
+export const withBootSplashGenerate: ConfigPlugin<{
+  assetsOutput?: string;
+  background?: string;
+  brand?: string;
+  brandWidth?: number;
+  darkBackground?: string;
+  darkBrand?: string;
+  darkLogo?: string;
+  licenseKey?: string;
+  logo?: string;
+  logoWidth?: number;
+}> = (config, args = {}) => {
+  const { platforms = [] } = config; // TODO: sdkVersion parse first number, then check if >= 50
+
+  const hasAndroidPlatform = platforms.includes("android");
+  const hasIOSPlatform = platforms.includes("ios");
+  // const basePlatform = hasIOSPlatform ? "ios" : "android";
+
+  if (!hasAndroidPlatform && !hasIOSPlatform) {
+    return config;
+  }
+
+  const { logo } = args;
+
+  if (logo == null) {
+    log.error("error: missing required argument 'logo'");
     process.exit(1);
   }
 
-  const { platforms = [] } = config; // sdkVersion parse first number, then check if >= 50
+  const props = transformArgs({
+    ...args,
+    platforms,
+    logo,
+    background: args.background ?? "#fff",
+    logoWidth: args.logoWidth ?? 100,
+    brandWidth: args.brandWidth ?? 80,
+    licenseKey: args.licenseKey ?? getEnvFileLicenseKey(),
+    flavor: "main",
+    html: "index.html",
+  });
+
   const plugins: [plugin: ConfigPlugin<Props>, props: Props][] = [];
 
-  if (platforms.includes("ios")) {
-    plugins.push(
-      [withBootSplashAppDelegate, props],
-      [withBootSplashInfoPlist, props],
-      [withBootSplashStoryboard, props],
-      [withIosBootSplashAssets, props],
-    );
-  }
-
-  if (platforms.includes("android")) {
+  if (hasAndroidPlatform) {
     plugins.push(
       [withBootSplashAndroidStyles, props],
       [withBootSplashAndroidManifest, props],
       [withBootSplashMainActivity, props],
       [withBootSplashAndroidColors, props],
       [withAndroidBootSplashAssets, props],
+    );
+  }
+
+  if (hasIOSPlatform) {
+    plugins.push(
+      [withBootSplashAppDelegate, props],
+      [withBootSplashInfoPlist, props],
+      [withBootSplashStoryboard, props],
+      [withIosBootSplashAssets, props],
     );
   }
 
