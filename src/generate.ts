@@ -481,14 +481,11 @@ export type Props = ReturnType<typeof transformArgs>;
 export type AddonProps = Props & {
   androidResPath: string | undefined;
   iosProjectPath: string | undefined;
-
-  logoHeight: number;
-  brandHeight: number;
 };
 
 const requireAddon = ():
   | {
-      execute: (config: AddonProps) => Promise<void>;
+      execute: (props: AddonProps) => Promise<void>;
       withAddon: ConfigPlugin<Props>;
     }
   | undefined => {
@@ -519,11 +516,12 @@ const generateAndroidAssets = async ({
   androidResPath,
   logo,
   logoWidth,
-}: {
+}: Props & {
   androidResPath: string;
-  logo: Sharp;
-  logoWidth: number;
 }) => {
+  log.title("🤖", "Android");
+
+  await ensureSupportedFormat("Logo", logo);
   const logoHeight = await getImageHeight(logo, logoWidth);
 
   if (logoWidth > 288 || logoHeight > 288) {
@@ -594,15 +592,15 @@ const generateIosAssets = async ({
   background,
   iosProjectPath,
   logo,
-  logoHeight,
   logoWidth,
-}: {
-  background: Color;
+}: Props & {
   iosProjectPath: string;
-  logo: Sharp;
-  logoHeight: number;
-  logoWidth: number;
-}) => {
+}): Promise<void[]> => {
+  log.title("🍏", "iOS");
+
+  await ensureSupportedFormat("Logo", logo);
+  const logoHeight = await getImageHeight(logo, logoWidth);
+
   const storyboardPath = path.resolve(iosProjectPath, "BootSplash.storyboard");
 
   writeXml(
@@ -682,15 +680,15 @@ const generateGenericAssets = async ({
   background,
   logo,
   logoWidth,
-}: {
+}: Props & {
   assetsOutputPath: string;
-  background: Color;
-  logo: Sharp;
-  logoWidth: number;
-}) => {
-  hfs.ensureDir(assetsOutputPath);
+}): Promise<void[]> => {
+  log.title("📄", "Assets");
 
+  await ensureSupportedFormat("Logo", logo);
   const logoHeight = await getImageHeight(logo, logoWidth);
+
+  hfs.ensureDir(assetsOutputPath);
 
   writeJson(path.resolve(assetsOutputPath, "bootsplash_manifest.json"), {
     background: background.hex,
@@ -733,30 +731,24 @@ export const generate = async ({
   android?: AndroidProjectConfig;
   ios?: IOSProjectConfig;
 } & CommonArgs) => {
-  const config = transformArgs(args);
+  const props = transformArgs(args);
 
   const {
     assetsOutputPath,
     background,
-    brand,
-    brandWidth,
-    darkBrand,
-    darkLogo,
     executeAddon,
     htmlTemplatePath,
     licenseKey,
     logo,
     logoPath,
     logoWidth,
-  } = config;
+  } = props;
 
-  await ensureSupportedFormat("Logo", logo);
-  await ensureSupportedFormat("Dark logo", darkLogo);
-  await ensureSupportedFormat("Brand", brand);
-  await ensureSupportedFormat("Dark brand", darkBrand);
-
-  const logoHeight = await getImageHeight(logo, logoWidth);
-  const brandHeight = await getImageHeight(brand, brandWidth);
+  // TODO: Check all formats before usage
+  // await ensureSupportedFormat("Logo", logo);
+  // await ensureSupportedFormat("Dark logo", darkLogo);
+  // await ensureSupportedFormat("Brand", brand);
+  // await ensureSupportedFormat("Dark brand", darkBrand);
 
   const androidResPath =
     args.platforms.includes("android") && android != null
@@ -782,9 +774,7 @@ export const generate = async ({
       : undefined;
 
   if (androidResPath != null) {
-    log.title("🤖", "Android");
-
-    await generateAndroidAssets({ androidResPath, logo, logoWidth });
+    await generateAndroidAssets({ ...props, androidResPath });
 
     const valuesPath = path.resolve(androidResPath, "values");
     hfs.ensureDir(valuesPath);
@@ -812,15 +802,7 @@ export const generate = async ({
   }
 
   if (iosProjectPath != null) {
-    log.title("🍏", "iOS");
-
-    await generateIosAssets({
-      background,
-      iosProjectPath,
-      logo,
-      logoHeight,
-      logoWidth,
-    });
+    await generateIosAssets({ ...props, iosProjectPath });
 
     addFileToXcodeProject(
       path.join(path.basename(iosProjectPath), "BootSplash.storyboard"),
@@ -851,6 +833,9 @@ export const generate = async ({
 
   if (htmlTemplatePath != null) {
     log.title("🌐", "Web");
+
+    await ensureSupportedFormat("Logo", logo);
+    const logoHeight = await getImageHeight(logo, logoWidth);
 
     const { root, formatOptions } = readHtml(htmlTemplatePath);
     const { format } = await logo.metadata();
@@ -914,25 +899,16 @@ export const generate = async ({
   }
 
   if (assetsOutputPath != null) {
-    log.title("📄", "Assets");
-
-    await generateGenericAssets({
-      assetsOutputPath,
-      background,
-      logo,
-      logoWidth,
-    });
+    await generateGenericAssets({ ...props, assetsOutputPath });
   }
 
   if (licenseKey != null && executeAddon) {
     const addon = requireAddon();
 
     await addon?.execute({
-      ...config,
+      ...props,
       androidResPath,
       iosProjectPath,
-      logoHeight,
-      brandHeight,
     });
   } else {
     log.text(`
@@ -1135,10 +1111,7 @@ const withBootSplashAndroidColors: ConfigPlugin<Props> = (
     return config;
   });
 
-const withAndroidBootSplashAssets: ConfigPlugin<Props> = (
-  config,
-  { logo, logoWidth, flavor },
-) =>
+const withAndroidBootSplashAssets: ConfigPlugin<Props> = (config, props) =>
   withDangerousMod(config, [
     "android",
     async (config) => {
@@ -1146,28 +1119,19 @@ const withAndroidBootSplashAssets: ConfigPlugin<Props> = (
 
       const androidResPath = getAndroidResPath({
         appName: "app",
-        flavor,
+        flavor: props.flavor,
         sourceDir: platformProjectRoot,
       });
 
       if (androidResPath != null) {
-        await ensureSupportedFormat("Logo", logo);
-
-        await generateAndroidAssets({
-          androidResPath,
-          logo,
-          logoWidth,
-        });
+        await generateAndroidAssets({ ...props, androidResPath });
       }
 
       return config;
     },
   ]);
 
-const withIosBootSplashAssets: ConfigPlugin<Props> = (
-  config,
-  { background, logo, logoWidth },
-) =>
+const withIosBootSplashAssets: ConfigPlugin<Props> = (config, props) =>
   withDangerousMod(config, [
     "ios",
     async (config) => {
@@ -1179,15 +1143,7 @@ const withIosBootSplashAssets: ConfigPlugin<Props> = (
       });
 
       if (iosProjectPath != null) {
-        await ensureSupportedFormat("Logo", logo);
-
-        await generateIosAssets({
-          background,
-          iosProjectPath,
-          logo,
-          logoHeight: await getImageHeight(logo, logoWidth),
-          logoWidth,
-        });
+        await generateIosAssets({ ...props, iosProjectPath });
       }
 
       return config;
@@ -1265,22 +1221,14 @@ export const withBootSplashGenerate: ConfigPlugin<{
     );
   }
 
-  const withGenericAssets: ConfigPlugin<Props> = (
-    config,
-    { assetsOutputPath, background, logo, logoWidth },
-  ) =>
+  const withGenericAssets: ConfigPlugin<Props> = (config, props) =>
     withDangerousMod(config, [
       basePlatform,
       async (config) => {
-        if (assetsOutputPath != null) {
-          await ensureSupportedFormat("Logo", logo);
+        const { assetsOutputPath } = props;
 
-          await generateGenericAssets({
-            assetsOutputPath,
-            background,
-            logo,
-            logoWidth,
-          });
+        if (assetsOutputPath != null) {
+          await generateGenericAssets({ ...props, assetsOutputPath });
         }
 
         return config;
