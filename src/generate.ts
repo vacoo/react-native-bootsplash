@@ -6,6 +6,7 @@ import {
   withAndroidManifest,
   withAndroidStyles,
   withAppDelegate,
+  withDangerousMod,
   withInfoPlist,
   withMainActivity,
   withPlugins,
@@ -14,6 +15,7 @@ import {
 import { assignColorValue } from "@expo/config-plugins/build/android/Colors";
 import { addImports } from "@expo/config-plugins/build/android/codeMod";
 import { mergeContents } from "@expo/config-plugins/build/utils/generateCode";
+import { get as getEnv } from "@expo/env";
 import plist from "@expo/plist";
 import { findProjectRoot } from "@react-native-community/cli-tools";
 import {
@@ -21,6 +23,7 @@ import {
   IOSProjectConfig,
 } from "@react-native-community/cli-types";
 import detectIndent from "detect-indent";
+import dotenv from "dotenv";
 import fs from "fs";
 import { parse as parseHtml } from "node-html-parser";
 import path from "path";
@@ -35,6 +38,7 @@ import formatXml, { XMLFormatterOptions } from "xml-formatter";
 import { Manifest } from ".";
 
 const workingPath = process.env.INIT_CWD ?? process.env.PWD ?? process.cwd();
+const projectRoot = findProjectRoot(workingPath);
 
 export type Color = {
   hex: string;
@@ -128,8 +132,6 @@ const getStoryboard = ({
 };
 
 export const addFileToXcodeProject = (filePath: string) => {
-  const projectRoot = findProjectRoot(workingPath);
-
   const pbxprojectPath = IOSConfig.Paths.getPBXProjectPath(projectRoot);
   const project = IOSConfig.XcodeUtils.getPbxproj(projectRoot);
   const xcodeProjectPath = IOSConfig.Paths.getXcodeProjectPath(projectRoot);
@@ -422,13 +424,23 @@ const requireAddon = ():
   }
 };
 
+const getEnvFileLicenseKey = () => {
+  const absoluteDotenvFile = getEnv(projectRoot).files[0];
+
+  if (absoluteDotenvFile != null) {
+    const env = dotenv.parse(hfs.text(absoluteDotenvFile));
+    return env["BOOTSPLASH_LICENSE_KEY"];
+  }
+};
+
 export const generate = async ({
   android,
   ios,
+
   platforms,
   html,
   flavor,
-  licenseKey,
+
   ...args
 }: {
   android?: AndroidProjectConfig;
@@ -505,6 +517,8 @@ export const generate = async ({
     darkBackground != null ||
     darkLogo != null ||
     darkBrand != null;
+
+  const licenseKey = args.licenseKey ?? getEnvFileLicenseKey();
 
   if (licenseKey != null && !executeAddon) {
     log.warn(
@@ -1107,32 +1121,68 @@ const withBootSplashAndroidColors: ConfigPlugin<Props> = (
     return config;
   });
 
+const withAndroidBootSplashAssets: ConfigPlugin<Props> = (config, _props) =>
+  withDangerousMod(config, [
+    "android",
+    /*async*/ (config) => {
+      console.log(config.modRequest);
+
+      // {
+      //   projectRoot: '/Users/zoontek/Projects/ExpoBootSplashPlugin',
+      //   projectName: undefined,
+      //   platformProjectRoot: '/Users/zoontek/Projects/ExpoBootSplashPlugin/android',
+      //   platform: 'android',
+      //   modName: 'dangerous',
+      //   introspect: false,
+      //   ignoreExistingNativeFiles: false
+      // }
+
+      // const iosNamedProjectRoot = IOSConfig.Paths.getSourceRoot(
+      //   config.modRequest.projectRoot,
+      // );
+
+      return config;
+    },
+  ]);
+
+const withIosBootSplashAssets: ConfigPlugin<Props> = (config, _props) =>
+  withDangerousMod(config, [
+    "ios",
+    /*async*/ (config) => {
+      console.log(config.modRequest);
+
+      // {
+      //   projectRoot: '/Users/zoontek/Projects/ExpoBootSplashPlugin',
+      //   projectName: 'BootSplashPlugin',
+      //   platformProjectRoot: '/Users/zoontek/Projects/ExpoBootSplashPlugin/ios',
+      //   platform: 'ios',
+      //   modName: 'dangerous',
+      //   introspect: false,
+      //   ignoreExistingNativeFiles: false
+      // }
+
+      // const iosNamedProjectRoot = IOSConfig.Paths.getSourceRoot(
+      //   config.modRequest.projectRoot,
+      // );
+
+      return config;
+    },
+  ]);
+
 export const withBootSplashGenerate: ConfigPlugin<Props> = (
   config,
   props = {},
 ) => {
   // TODO: transform + validate props (using the same logic as the CLI one)
-  // console.log(config, props);
 
   // TO REFACTO (COMMON STUFF)
-  const [nodeStringVersion = ""] = process.versions.node.split(".");
-  const nodeVersion = parseInt(nodeStringVersion, 10);
 
-  if (!isNaN(nodeVersion) && nodeVersion < 18) {
-    log.error("Requires Node 18 (or higher)");
-    process.exit(1);
-  }
-
-  // ONLY BLOCK NOT IN COMMON
   if (props.logo == null) {
     log.error(`${PACKAGE_NAME}: logo option must be set`);
     process.exit(1);
   }
 
-  // const workingPath = process.env.INIT_CWD ?? process.env.PWD ?? process.cwd();
-  // END OF COMMON
-
-  const { platforms = [] } = config;
+  const { platforms = [] } = config; // sdkVersion parse first number, then check if >= 50
   const plugins: [plugin: ConfigPlugin<Props>, props: Props][] = [];
 
   if (platforms.includes("ios")) {
@@ -1140,6 +1190,7 @@ export const withBootSplashGenerate: ConfigPlugin<Props> = (
       [withBootSplashAppDelegate, props],
       [withBootSplashInfoPlist, props],
       [withBootSplashStoryboard, props],
+      [withIosBootSplashAssets, props],
     );
   }
 
@@ -1149,6 +1200,7 @@ export const withBootSplashGenerate: ConfigPlugin<Props> = (
       [withBootSplashAndroidManifest, props],
       [withBootSplashMainActivity, props],
       [withBootSplashAndroidColors, props],
+      [withAndroidBootSplashAssets, props],
     );
   }
 
