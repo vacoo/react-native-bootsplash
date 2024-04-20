@@ -384,46 +384,6 @@ const getHtmlTemplatePath = (html: string): string | undefined => {
   }
 };
 
-export type AddonConfig = {
-  licenseKey: string;
-
-  androidResPath: string | undefined;
-  iosProjectPath: string | undefined;
-  htmlTemplatePath: string | undefined;
-  assetsOutputPath: string | undefined;
-
-  logoPath: string;
-  darkLogoPath: string | undefined;
-  brandPath: string | undefined;
-  darkBrandPath: string | undefined;
-
-  logoHeight: number;
-  logoWidth: number;
-  brandHeight: number;
-  brandWidth: number;
-
-  background: Color;
-  logo: Sharp;
-  brand: Sharp | undefined;
-
-  darkBackground: Color | undefined;
-  darkLogo: Sharp | undefined;
-  darkBrand: Sharp | undefined;
-};
-
-const requireAddon = ():
-  | {
-      execute: (config: AddonConfig) => Promise<void>;
-      withAddon: ConfigPlugin<Props>;
-    }
-  | undefined => {
-  try {
-    return require("./addon"); // eslint-disable-line
-  } catch {
-    return;
-  }
-};
-
 const getEnvFileLicenseKey = () => {
   const absoluteDotenvFile = getEnv(projectRoot).files[0];
 
@@ -433,21 +393,9 @@ const getEnvFileLicenseKey = () => {
   }
 };
 
-export const generate = async ({
-  android,
-  ios,
-
-  platforms,
-  html,
-  flavor,
-
-  ...args
-}: {
-  android?: AndroidProjectConfig;
-  ios?: IOSProjectConfig;
-
-  logo: string;
+type CommonArgs = {
   platforms: string[];
+  logo: string;
   background: string;
   logoWidth: number;
   assetsOutput?: string;
@@ -460,7 +408,9 @@ export const generate = async ({
   darkBackground?: string;
   darkLogo?: string;
   darkBrand?: string;
-}) => {
+};
+
+const transformArgs = (args: CommonArgs) => {
   const [nodeStringVersion = ""] = process.versions.node.split(".");
   const nodeVersion = parseInt(nodeStringVersion, 10);
 
@@ -488,6 +438,10 @@ export const generate = async ({
     args.assetsOutput != null
       ? path.resolve(workingPath, args.assetsOutput)
       : undefined;
+
+  const htmlTemplatePath = args.platforms.includes("web")
+    ? getHtmlTemplatePath(args.html)
+    : undefined;
 
   const logo = sharp(logoPath);
   const darkLogo = darkLogoPath != null ? sharp(darkLogoPath) : undefined;
@@ -546,6 +500,72 @@ export const generate = async ({
     process.exit(1);
   }
 
+  return {
+    assetsOutputPath,
+    background,
+    brand,
+    brandPath,
+    brandWidth,
+    darkBackground,
+    darkBrand,
+    darkBrandPath,
+    darkLogo,
+    darkLogoPath,
+    executeAddon,
+    htmlTemplatePath,
+    licenseKey,
+    logo,
+    logoPath,
+    logoWidth,
+  };
+};
+
+export type AddonConfig = ReturnType<typeof transformArgs> & {
+  androidResPath: string | undefined;
+  iosProjectPath: string | undefined;
+
+  logoHeight: number;
+  brandHeight: number;
+};
+
+const requireAddon = ():
+  | {
+      execute: (config: AddonConfig) => Promise<void>;
+      withAddon: ConfigPlugin<Props>;
+    }
+  | undefined => {
+  try {
+    return require("./addon"); // eslint-disable-line
+  } catch {
+    return;
+  }
+};
+
+export const generate = async ({
+  android,
+  ios,
+  ...args
+}: {
+  android?: AndroidProjectConfig;
+  ios?: IOSProjectConfig;
+} & CommonArgs) => {
+  const config = transformArgs(args);
+
+  const {
+    assetsOutputPath,
+    background,
+    brand,
+    brandWidth,
+    darkBrand,
+    darkLogo,
+    executeAddon,
+    htmlTemplatePath,
+    licenseKey,
+    logo,
+    logoPath,
+    logoWidth,
+  } = config;
+
   await ensureSupportedFormat("Logo", logo);
   await ensureSupportedFormat("Dark logo", darkLogo);
   await ensureSupportedFormat("Brand", brand);
@@ -567,18 +587,14 @@ export const generate = async ({
       .then(({ height = 0 }) => Math.round(height))) ?? 0;
 
   const androidResPath =
-    platforms.includes("android") && android != null
-      ? getAndroidResPath(android, flavor)
+    args.platforms.includes("android") && android != null
+      ? getAndroidResPath(android, args.flavor)
       : undefined;
 
   const iosProjectPath =
-    platforms.includes("ios") && ios != null
+    args.platforms.includes("ios") && ios != null
       ? getIOSProjectPath(ios)
       : undefined;
-
-  const htmlTemplatePath = platforms.includes("web")
-    ? getHtmlTemplatePath(html)
-    : undefined;
 
   if (
     androidResPath != null &&
@@ -882,30 +898,11 @@ export const generate = async ({
     const addon = requireAddon();
 
     await addon?.execute({
-      licenseKey,
-
+      ...config,
       androidResPath,
       iosProjectPath,
-      htmlTemplatePath,
-      assetsOutputPath,
-
       logoHeight,
-      logoWidth,
       brandHeight,
-      brandWidth,
-
-      logoPath,
-      darkLogoPath,
-      brandPath,
-      darkBrandPath,
-
-      background,
-      logo,
-      brand,
-
-      darkBackground,
-      darkLogo,
-      darkBrand,
     });
   } else {
     log.text(`
@@ -934,7 +931,7 @@ export type Props = {
   darkBackground?: string;
   darkBrand?: string;
   darkLogo?: string;
-  licenseKey?: string; // TODO: Remove this from here
+  licenseKey?: string;
   logo?: string;
   logoWidth?: number;
 };
