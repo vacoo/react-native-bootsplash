@@ -677,6 +677,54 @@ const generateIosAssets = async ({
   );
 };
 
+const generateGenericAssets = async ({
+  assetsOutputPath,
+  background,
+  logo,
+  logoWidth,
+}: {
+  assetsOutputPath: string;
+  background: Color;
+  logo: Sharp;
+  logoWidth: number;
+}) => {
+  hfs.ensureDir(assetsOutputPath);
+
+  const logoHeight = await getImageHeight(logo, logoWidth);
+
+  writeJson(path.resolve(assetsOutputPath, "bootsplash_manifest.json"), {
+    background: background.hex,
+    logo: {
+      width: logoWidth,
+      height: logoHeight,
+    },
+  } satisfies Manifest);
+
+  return Promise.all(
+    [
+      { ratio: 1, suffix: "" },
+      { ratio: 1.5, suffix: "@1,5x" },
+      { ratio: 2, suffix: "@2x" },
+      { ratio: 3, suffix: "@3x" },
+      { ratio: 4, suffix: "@4x" },
+    ].map(({ ratio, suffix }) => {
+      const filePath = path.resolve(
+        assetsOutputPath,
+        `bootsplash_logo${suffix}.png`,
+      );
+
+      return logo
+        .clone()
+        .resize(Math.round(logoWidth * ratio))
+        .png({ quality: 100 })
+        .toFile(filePath)
+        .then(({ width, height }) => {
+          logWrite(filePath, { width, height });
+        });
+    }),
+  );
+};
+
 export const generate = async ({
   android,
   ios,
@@ -868,39 +916,12 @@ export const generate = async ({
   if (assetsOutputPath != null) {
     log.title("📄", "Assets");
 
-    hfs.ensureDir(assetsOutputPath);
-
-    writeJson(path.resolve(assetsOutputPath, "bootsplash_manifest.json"), {
-      background: background.hex,
-      logo: {
-        width: logoWidth,
-        height: logoHeight,
-      },
-    } satisfies Manifest);
-
-    await Promise.all(
-      [
-        { ratio: 1, suffix: "" },
-        { ratio: 1.5, suffix: "@1,5x" },
-        { ratio: 2, suffix: "@2x" },
-        { ratio: 3, suffix: "@3x" },
-        { ratio: 4, suffix: "@4x" },
-      ].map(({ ratio, suffix }) => {
-        const filePath = path.resolve(
-          assetsOutputPath,
-          `bootsplash_logo${suffix}.png`,
-        );
-
-        return logo
-          .clone()
-          .resize(Math.round(logoWidth * ratio))
-          .png({ quality: 100 })
-          .toFile(filePath)
-          .then(({ width, height }) => {
-            logWrite(filePath, { width, height });
-          });
-      }),
-    );
+    await generateGenericAssets({
+      assetsOutputPath,
+      background,
+      logo,
+      logoWidth,
+    });
   }
 
   if (licenseKey != null && executeAddon) {
@@ -1123,8 +1144,6 @@ const withAndroidBootSplashAssets: ConfigPlugin<Props> = (
     async (config) => {
       const { platformProjectRoot } = config.modRequest;
 
-      await ensureSupportedFormat("Logo", logo);
-
       const androidResPath = getAndroidResPath({
         appName: "app",
         flavor,
@@ -1132,6 +1151,8 @@ const withAndroidBootSplashAssets: ConfigPlugin<Props> = (
       });
 
       if (androidResPath != null) {
+        await ensureSupportedFormat("Logo", logo);
+
         await generateAndroidAssets({
           androidResPath,
           logo,
@@ -1152,21 +1173,19 @@ const withIosBootSplashAssets: ConfigPlugin<Props> = (
     async (config) => {
       const { platformProjectRoot, projectName = "" } = config.modRequest;
 
-      await ensureSupportedFormat("Logo", logo);
-
       const iosProjectPath = getIOSProjectPath({
         sourceDir: platformProjectRoot,
         projectName,
       });
 
       if (iosProjectPath != null) {
-        const logoHeight = await getImageHeight(logo, logoWidth);
+        await ensureSupportedFormat("Logo", logo);
 
         await generateIosAssets({
           background,
           iosProjectPath,
           logo,
-          logoHeight,
+          logoHeight: await getImageHeight(logo, logoWidth),
           logoWidth,
         });
       }
@@ -1200,7 +1219,7 @@ export const withBootSplashGenerate: ConfigPlugin<{
 
   const hasAndroidPlatform = platforms.includes("android");
   const hasIOSPlatform = platforms.includes("ios");
-  // const basePlatform = hasIOSPlatform ? "ios" : "android";
+  const basePlatform = hasIOSPlatform ? "ios" : "android";
 
   if (!hasAndroidPlatform && !hasIOSPlatform) {
     return config;
@@ -1225,34 +1244,61 @@ export const withBootSplashGenerate: ConfigPlugin<{
     html: "index.html",
   });
 
-  const plugins: [plugin: ConfigPlugin<Props>, props: Props][] = [];
+  const plugins: ConfigPlugin<Props>[] = [];
 
   if (hasAndroidPlatform) {
     plugins.push(
-      [withBootSplashAndroidStyles, props],
-      [withBootSplashAndroidManifest, props],
-      [withBootSplashMainActivity, props],
-      [withBootSplashAndroidColors, props],
-      [withAndroidBootSplashAssets, props],
+      withBootSplashAndroidStyles,
+      withBootSplashAndroidManifest,
+      withBootSplashMainActivity,
+      withBootSplashAndroidColors,
+      withAndroidBootSplashAssets,
     );
   }
 
   if (hasIOSPlatform) {
     plugins.push(
-      [withBootSplashAppDelegate, props],
-      [withBootSplashInfoPlist, props],
-      [withBootSplashStoryboard, props],
-      [withIosBootSplashAssets, props],
+      withBootSplashAppDelegate,
+      withBootSplashInfoPlist,
+      withBootSplashStoryboard,
+      withIosBootSplashAssets,
     );
   }
+
+  const withGenericAssets: ConfigPlugin<Props> = (
+    config,
+    { assetsOutputPath, background, logo, logoWidth },
+  ) =>
+    withDangerousMod(config, [
+      basePlatform,
+      async (config) => {
+        if (assetsOutputPath != null) {
+          await ensureSupportedFormat("Logo", logo);
+
+          await generateGenericAssets({
+            assetsOutputPath,
+            background,
+            logo,
+            logoWidth,
+          });
+        }
+
+        return config;
+      },
+    ]);
+
+  plugins.push(withGenericAssets);
 
   if (props.licenseKey != null) {
     const addon = requireAddon();
 
     if (addon != null) {
-      plugins.push([addon.withAddon, props]);
+      plugins.push(addon.withAddon);
     }
   }
 
-  return withPlugins(config, plugins);
+  return withPlugins(
+    config,
+    plugins.map((plugin) => [plugin, props] as const),
+  );
 };
