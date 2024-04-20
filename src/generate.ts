@@ -366,8 +366,6 @@ type CommonArgs = {
 };
 
 const transformArgs = (args: CommonArgs) => {
-  const { flavor, licenseKey } = args;
-
   const [nodeStringVersion = ""] = process.versions.node.split(".");
   const nodeVersion = parseInt(nodeStringVersion, 10);
 
@@ -375,6 +373,13 @@ const transformArgs = (args: CommonArgs) => {
     log.error("Requires Node 18 (or higher)");
     process.exit(1);
   }
+
+  const { flavor, licenseKey, platforms } = args;
+
+  const hasAndroidPlatform = platforms.includes("android");
+  const hasIosPlatform = platforms.includes("ios");
+  const hasWebPlatform = platforms.includes("web");
+  const basePlatform = hasIosPlatform ? "ios" : "android";
 
   const logoPath = path.resolve(workingPath, args.logo);
 
@@ -396,7 +401,7 @@ const transformArgs = (args: CommonArgs) => {
       ? path.resolve(workingPath, args.assetsOutput)
       : undefined;
 
-  const htmlTemplatePath = args.platforms.includes("web")
+  const htmlTemplatePath = hasWebPlatform
     ? getHtmlTemplatePath(args.html)
     : undefined;
 
@@ -458,6 +463,7 @@ const transformArgs = (args: CommonArgs) => {
   return {
     assetsOutputPath,
     background,
+    basePlatform,
     brand,
     brandPath,
     brandWidth,
@@ -468,12 +474,14 @@ const transformArgs = (args: CommonArgs) => {
     darkLogoPath,
     executeAddon,
     flavor,
+    hasAndroidPlatform,
+    hasIosPlatform,
     htmlTemplatePath,
     licenseKey,
     logo,
     logoPath,
     logoWidth,
-  };
+  } as const;
 };
 
 export type Props = ReturnType<typeof transformArgs>;
@@ -675,6 +683,81 @@ const generateIosAssets = async ({
   );
 };
 
+const generateWebAssets = async ({
+  background,
+  htmlTemplatePath,
+  logo,
+  logoPath,
+  logoWidth,
+}: Props & {
+  htmlTemplatePath: string;
+}) => {
+  log.title("🌐", "Web");
+
+  await ensureSupportedFormat("Logo", logo);
+  const logoHeight = await getImageHeight(logo, logoWidth);
+
+  const { root, formatOptions } = readHtml(htmlTemplatePath);
+  const { format } = await logo.metadata();
+  const prevStyle = root.querySelector("#bootsplash-style");
+
+  const base64 = (
+    format === "svg"
+      ? hfs.buffer(logoPath)
+      : await logo
+          .clone()
+          .resize(Math.round(logoWidth * 2))
+          .png({ quality: 100 })
+          .toBuffer()
+  ).toString("base64");
+
+  const dataURI = `data:image/${format ? "svg+xml" : "png"};base64,${base64}`;
+
+  const nextStyle = parseHtml(dedent`
+    <style id="bootsplash-style">
+      #bootsplash {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        overflow: hidden;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: ${background.hex};
+      }
+      #bootsplash-logo {
+        content: url("${dataURI}");
+        width: ${logoWidth}px;
+        height: ${logoHeight}px;
+      }
+    </style>
+  `);
+
+  if (prevStyle != null) {
+    prevStyle.replaceWith(nextStyle);
+  } else {
+    root.querySelector("head")?.appendChild(nextStyle);
+  }
+
+  const prevDiv = root.querySelector("#bootsplash");
+
+  const nextDiv = parseHtml(dedent`
+    <div id="bootsplash">
+      <div id="bootsplash-logo"></div>
+    </div>
+  `);
+
+  if (prevDiv != null) {
+    prevDiv.replaceWith(nextDiv);
+  } else {
+    root.querySelector("body")?.appendChild(nextDiv);
+  }
+
+  return writeHtml(htmlTemplatePath, root.toString(), formatOptions);
+};
+
 const generateGenericAssets = async ({
   assetsOutputPath,
   background,
@@ -732,17 +815,7 @@ export const generate = async ({
   ios?: IOSProjectConfig;
 } & CommonArgs) => {
   const props = transformArgs(args);
-
-  const {
-    assetsOutputPath,
-    background,
-    executeAddon,
-    htmlTemplatePath,
-    licenseKey,
-    logo,
-    logoPath,
-    logoWidth,
-  } = props;
+  const { assetsOutputPath, htmlTemplatePath } = props;
 
   // TODO: Check all formats before usage
   // await ensureSupportedFormat("Logo", logo);
@@ -750,8 +823,14 @@ export const generate = async ({
   // await ensureSupportedFormat("Brand", brand);
   // await ensureSupportedFormat("Dark brand", darkBrand);
 
+  const projectName = ios?.xcodeProject?.name;
+
+  if (ios != null && projectName == null) {
+    log.warn("No Xcode project found. Skipping iOS assets generation…");
+  }
+
   const androidResPath =
-    args.platforms.includes("android") && android != null
+    props.hasAndroidPlatform && android != null
       ? getAndroidResPath({
           appName: android.appName,
           flavor: args.flavor,
@@ -759,14 +838,8 @@ export const generate = async ({
         })
       : undefined;
 
-  const projectName = ios?.xcodeProject?.name;
-
-  if (ios != null && projectName == null) {
-    log.warn("No Xcode project found. Skipping iOS assets generation…");
-  }
-
   const iosProjectPath =
-    args.platforms.includes("ios") && ios != null && projectName != null
+    props.hasIosPlatform && ios != null && projectName != null
       ? getIOSProjectPath({
           sourceDir: ios.sourceDir,
           projectName: projectName.replace(/\.(xcodeproj|xcworkspace)$/, ""),
@@ -780,7 +853,7 @@ export const generate = async ({
     hfs.ensureDir(valuesPath);
 
     const colorsXmlPath = path.resolve(valuesPath, "colors.xml");
-    const colorsXmlEntry = `<color name="bootsplash_background">${background.hex}</color>`;
+    const colorsXmlEntry = `<color name="bootsplash_background">${props.background.hex}</color>`;
 
     if (hfs.exists(colorsXmlPath)) {
       const { root, formatOptions } = readXml(colorsXmlPath);
@@ -832,77 +905,13 @@ export const generate = async ({
   }
 
   if (htmlTemplatePath != null) {
-    log.title("🌐", "Web");
-
-    await ensureSupportedFormat("Logo", logo);
-    const logoHeight = await getImageHeight(logo, logoWidth);
-
-    const { root, formatOptions } = readHtml(htmlTemplatePath);
-    const { format } = await logo.metadata();
-    const prevStyle = root.querySelector("#bootsplash-style");
-
-    const base64 = (
-      format === "svg"
-        ? hfs.buffer(logoPath)
-        : await logo
-            .clone()
-            .resize(Math.round(logoWidth * 2))
-            .png({ quality: 100 })
-            .toBuffer()
-    ).toString("base64");
-
-    const dataURI = `data:image/${format ? "svg+xml" : "png"};base64,${base64}`;
-
-    const nextStyle = parseHtml(dedent`
-      <style id="bootsplash-style">
-        #bootsplash {
-          position: absolute;
-          top: 0;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          overflow: hidden;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          background-color: ${background.hex};
-        }
-        #bootsplash-logo {
-          content: url("${dataURI}");
-          width: ${logoWidth}px;
-          height: ${logoHeight}px;
-        }
-      </style>
-    `);
-
-    if (prevStyle != null) {
-      prevStyle.replaceWith(nextStyle);
-    } else {
-      root.querySelector("head")?.appendChild(nextStyle);
-    }
-
-    const prevDiv = root.querySelector("#bootsplash");
-
-    const nextDiv = parseHtml(dedent`
-      <div id="bootsplash">
-        <div id="bootsplash-logo"></div>
-      </div>
-    `);
-
-    if (prevDiv != null) {
-      prevDiv.replaceWith(nextDiv);
-    } else {
-      root.querySelector("body")?.appendChild(nextDiv);
-    }
-
-    await writeHtml(htmlTemplatePath, root.toString(), formatOptions);
+    await generateWebAssets({ ...props, htmlTemplatePath });
   }
-
   if (assetsOutputPath != null) {
     await generateGenericAssets({ ...props, assetsOutputPath });
   }
 
-  if (licenseKey != null && executeAddon) {
+  if (props.licenseKey != null && props.executeAddon) {
     const addon = requireAddon();
 
     await addon?.execute({
@@ -929,84 +938,12 @@ ${pc.blue("┗━━━━━━━━━━━━━━━━━━━━━━
 
 const PACKAGE_NAME = "react-native-bootsplash";
 
-const getTag = (name: string) => `${PACKAGE_NAME}-${name}`;
-
 const logMalformedFileError = (file: string) =>
   console.error(
     `ERROR: Cannot add ${PACKAGE_NAME} to the project's ${file} because it's malformed. Please report this with a copy of your project ${file}.`,
   );
 
-const withBootSplashAppDelegate: ConfigPlugin<Props> = (config) =>
-  withAppDelegate(config, (config) => {
-    const { modResults } = config;
-    const { language } = modResults;
-
-    if (language !== "objc" && language !== "objcpp") {
-      throw new Error(
-        `Cannot setup ${PACKAGE_NAME} because the project AppDelegate is not a supported language: ${language}`,
-      );
-    }
-
-    const withHeader = mergeContents({
-      src: modResults.contents,
-      comment: "//",
-      tag: getTag("header"),
-      offset: 1,
-      anchor: /#import "AppDelegate\.h"/,
-      newSrc: '#import "RNBootSplash.h"',
-    });
-
-    const withRootView = mergeContents({
-      src: withHeader.contents,
-      comment: "//",
-      tag: getTag("init"),
-      offset: 0,
-      anchor: /@end/,
-      newSrc: dedent`
-        - (UIView *)createRootViewWithBridge:(RCTBridge *)bridge moduleName:(NSString *)moduleName initProps:(NSDictionary *)initProps {
-          UIView *rootView = [super createRootViewWithBridge:bridge moduleName:moduleName initProps:initProps];
-          [RNBootSplash initWithStoryboard:@"BootSplash" rootView:rootView];
-          return rootView;
-        }
-      `,
-    });
-
-    if (!withHeader.didMerge || !withRootView.didMerge) {
-      logMalformedFileError(`AppDelegate.${language === "objc" ? "m" : "mm"}`);
-      return config;
-    }
-
-    return {
-      ...config,
-      modResults: {
-        ...modResults,
-        contents: withRootView.contents,
-      },
-    };
-  });
-
-const withBootSplashInfoPlist: ConfigPlugin<Props> = (config) =>
-  withInfoPlist(config, (config) => {
-    config.modResults["UILaunchStoryboardName"] = "BootSplash";
-    return config;
-  });
-
-const withBootSplashStoryboard: ConfigPlugin<Props> = (config) =>
-  withXcodeProject(config, (config) => {
-    const { platformProjectRoot, projectName = "" } = config.modRequest;
-    const xcodeProjectPath = path.join(platformProjectRoot, projectName);
-
-    IOSConfig.XcodeUtils.addResourceFileToGroup({
-      filepath: path.join(xcodeProjectPath, "BootSplash.storyboard"),
-      groupName: projectName,
-      project: config.modResults,
-      isBuildFile: true,
-    });
-
-    return config;
-  });
-
-const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, { brand }) =>
+const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, props) =>
   withAndroidStyles(config, (config) => {
     const item = [
       {
@@ -1023,7 +960,7 @@ const withBootSplashAndroidStyles: ConfigPlugin<Props> = (config, { brand }) =>
       },
     ];
 
-    if (brand != null) {
+    if (props.brand != null) {
       item.push({
         $: { name: "bootSplashBrand" },
         _: "@drawable/bootsplash_brand",
@@ -1076,7 +1013,7 @@ const withBootSplashMainActivity: ConfigPlugin<Props> = (config) =>
     const withInit = mergeContents({
       src: withImports,
       comment: "    //",
-      tag: getTag("init"),
+      tag: `${PACKAGE_NAME}-init`,
       offset: 0,
       anchor: /super\.onCreate\(null\)/,
       newSrc:
@@ -1098,14 +1035,11 @@ const withBootSplashMainActivity: ConfigPlugin<Props> = (config) =>
     };
   });
 
-const withBootSplashAndroidColors: ConfigPlugin<Props> = (
-  config,
-  { background },
-) =>
+const withBootSplashAndroidColors: ConfigPlugin<Props> = (config, props) =>
   withAndroidColors(config, (config) => {
     config.modResults = assignColorValue(config.modResults, {
       name: "bootsplash_background",
-      value: background.hex.toLowerCase(),
+      value: props.background.hex.toLowerCase(),
     });
 
     return config;
@@ -1131,6 +1065,76 @@ const withAndroidBootSplashAssets: ConfigPlugin<Props> = (config, props) =>
     },
   ]);
 
+const withBootSplashAppDelegate: ConfigPlugin<Props> = (config) =>
+  withAppDelegate(config, (config) => {
+    const { modResults } = config;
+    const { language } = modResults;
+
+    if (language !== "objc" && language !== "objcpp") {
+      throw new Error(
+        `Cannot setup ${PACKAGE_NAME} because the project AppDelegate is not a supported language: ${language}`,
+      );
+    }
+
+    const withHeader = mergeContents({
+      src: modResults.contents,
+      comment: "//",
+      tag: `${PACKAGE_NAME}-header`,
+      offset: 1,
+      anchor: /#import "AppDelegate\.h"/,
+      newSrc: '#import "RNBootSplash.h"',
+    });
+
+    const withRootView = mergeContents({
+      src: withHeader.contents,
+      comment: "//",
+      tag: `${PACKAGE_NAME}-init`,
+      offset: 0,
+      anchor: /@end/,
+      newSrc: dedent`
+          - (UIView *)createRootViewWithBridge:(RCTBridge *)bridge moduleName:(NSString *)moduleName initProps:(NSDictionary *)initProps {
+            UIView *rootView = [super createRootViewWithBridge:bridge moduleName:moduleName initProps:initProps];
+            [RNBootSplash initWithStoryboard:@"BootSplash" rootView:rootView];
+            return rootView;
+          }
+        `,
+    });
+
+    if (!withHeader.didMerge || !withRootView.didMerge) {
+      logMalformedFileError(`AppDelegate.${language === "objc" ? "m" : "mm"}`);
+      return config;
+    }
+
+    return {
+      ...config,
+      modResults: {
+        ...modResults,
+        contents: withRootView.contents,
+      },
+    };
+  });
+
+const withBootSplashInfoPlist: ConfigPlugin<Props> = (config) =>
+  withInfoPlist(config, (config) => {
+    config.modResults["UILaunchStoryboardName"] = "BootSplash";
+    return config;
+  });
+
+const withBootSplashStoryboard: ConfigPlugin<Props> = (config) =>
+  withXcodeProject(config, (config) => {
+    const { platformProjectRoot, projectName = "" } = config.modRequest;
+    const xcodeProjectPath = path.join(platformProjectRoot, projectName);
+
+    IOSConfig.XcodeUtils.addResourceFileToGroup({
+      filepath: path.join(xcodeProjectPath, "BootSplash.storyboard"),
+      groupName: projectName,
+      project: config.modResults,
+      isBuildFile: true,
+    });
+
+    return config;
+  });
+
 const withIosBootSplashAssets: ConfigPlugin<Props> = (config, props) =>
   withDangerousMod(config, [
     "ios",
@@ -1144,6 +1148,20 @@ const withIosBootSplashAssets: ConfigPlugin<Props> = (config, props) =>
 
       if (iosProjectPath != null) {
         await generateIosAssets({ ...props, iosProjectPath });
+      }
+
+      return config;
+    },
+  ]);
+
+const withBootSplashGenericAssets: ConfigPlugin<Props> = (config, props) =>
+  withDangerousMod(config, [
+    props.basePlatform,
+    async (config) => {
+      const { assetsOutputPath } = props;
+
+      if (assetsOutputPath != null) {
+        await generateGenericAssets({ ...props, assetsOutputPath });
       }
 
       return config;
@@ -1172,15 +1190,7 @@ export const withBootSplashGenerate: ConfigPlugin<{
   logoWidth?: number;
 }> = (config, args = {}) => {
   const { platforms = [] } = config; // TODO: sdkVersion parse first number, then check if >= 50
-
-  const hasAndroidPlatform = platforms.includes("android");
-  const hasIOSPlatform = platforms.includes("ios");
-  const basePlatform = hasIOSPlatform ? "ios" : "android";
-
-  if (!hasAndroidPlatform && !hasIOSPlatform) {
-    return config;
-  }
-
+  const plugins: ConfigPlugin<Props>[] = [];
   const { logo } = args;
 
   if (logo == null) {
@@ -1200,9 +1210,11 @@ export const withBootSplashGenerate: ConfigPlugin<{
     html: "index.html",
   });
 
-  const plugins: ConfigPlugin<Props>[] = [];
+  if (!props.hasAndroidPlatform && !props.hasIosPlatform) {
+    return config;
+  }
 
-  if (hasAndroidPlatform) {
+  if (props.hasAndroidPlatform) {
     plugins.push(
       withBootSplashAndroidStyles,
       withBootSplashAndroidManifest,
@@ -1212,7 +1224,7 @@ export const withBootSplashGenerate: ConfigPlugin<{
     );
   }
 
-  if (hasIOSPlatform) {
+  if (props.hasIosPlatform) {
     plugins.push(
       withBootSplashAppDelegate,
       withBootSplashInfoPlist,
@@ -1221,23 +1233,9 @@ export const withBootSplashGenerate: ConfigPlugin<{
     );
   }
 
-  const withGenericAssets: ConfigPlugin<Props> = (config, props) =>
-    withDangerousMod(config, [
-      basePlatform,
-      async (config) => {
-        const { assetsOutputPath } = props;
+  plugins.push(withBootSplashGenericAssets);
 
-        if (assetsOutputPath != null) {
-          await generateGenericAssets({ ...props, assetsOutputPath });
-        }
-
-        return config;
-      },
-    ]);
-
-  plugins.push(withGenericAssets);
-
-  if (props.licenseKey != null) {
+  if (props.licenseKey != null && props.executeAddon) {
     const addon = requireAddon();
 
     if (addon != null) {
