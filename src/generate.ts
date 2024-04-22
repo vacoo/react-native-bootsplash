@@ -482,10 +482,16 @@ export type AddonProps = Props & {
   iosProjectPath: string | undefined;
 };
 
+export type PlatformsPlugins = {
+  android: Expo.ConfigPlugin<Props>[];
+  ios: Expo.ConfigPlugin<Props>[];
+  generic: Expo.ConfigPlugin<Props>[];
+};
+
 const requireAddon = ():
   | {
       execute: (props: AddonProps) => Promise<void>;
-      getPlugins: (props: Props) => Expo.ConfigPlugin<Props>[];
+      plugins: PlatformsPlugins;
     }
   | undefined => {
   try {
@@ -511,7 +517,7 @@ export const getImageHeight = (
     .then(({ height = 0 }) => Math.round(height));
 };
 
-export const generateAndroidFreeAssets = async ({
+export const generateAndroidAssets = async ({
   androidResPath,
   logo,
   logoWidth,
@@ -586,7 +592,7 @@ export const generateAndroidFreeAssets = async ({
   );
 };
 
-export const generateIosFreeAssets = async ({
+export const generateIosAssets = async ({
   background,
   iosProjectPath,
   logo,
@@ -674,7 +680,7 @@ export const generateIosFreeAssets = async ({
   );
 };
 
-export const generateWebFreeAssets = async ({
+export const generateWebAssets = async ({
   background,
   htmlTemplatePath,
   logo,
@@ -750,7 +756,7 @@ export const generateWebFreeAssets = async ({
   return writeHtml(htmlTemplatePath, root.toString(), formatOptions);
 };
 
-export const generateGenericFreeAssets = async ({
+export const generateGenericAssets = async ({
   assetsOutputPath,
   background,
   logo,
@@ -841,7 +847,7 @@ export const generate = async ({
       : undefined;
 
   if (androidResPath != null) {
-    await generateAndroidFreeAssets({ ...props, androidResPath });
+    await generateAndroidAssets({ ...props, androidResPath });
 
     const valuesPath = path.resolve(androidResPath, "values");
     hfs.ensureDir(valuesPath);
@@ -869,7 +875,7 @@ export const generate = async ({
   }
 
   if (iosProjectPath != null) {
-    await generateIosFreeAssets({ ...props, iosProjectPath });
+    await generateIosAssets({ ...props, iosProjectPath });
 
     addFileToXcodeProject(
       path.join(path.basename(iosProjectPath), "BootSplash.storyboard"),
@@ -899,11 +905,11 @@ export const generate = async ({
   }
 
   if (htmlTemplatePath != null) {
-    await generateWebFreeAssets({ ...props, htmlTemplatePath });
+    await generateWebAssets({ ...props, htmlTemplatePath });
   }
 
   if (assetsOutputPath != null) {
-    await generateGenericFreeAssets({ ...props, assetsOutputPath });
+    await generateGenericAssets({ ...props, assetsOutputPath });
   }
 
   if (licenseKey != null) {
@@ -934,7 +940,7 @@ ${pc.blue("┗━━━━━━━━━━━━━━━━━━━━━━
 const logFileUpdateError = (file: string) =>
   log.error(`Cannot modify ${file} because it's malformed. Please report it.`);
 
-const withAndroidFreeAssets: Expo.ConfigPlugin<Props> = (config, props) =>
+const withAndroidAssets: Expo.ConfigPlugin<Props> = (config, props) =>
   Expo.withDangerousMod(config, [
     "android",
     async (config) => {
@@ -948,45 +954,20 @@ const withAndroidFreeAssets: Expo.ConfigPlugin<Props> = (config, props) =>
       });
 
       if (androidResPath != null) {
-        await generateAndroidFreeAssets({ ...props, androidResPath });
+        await generateAndroidAssets({ ...props, androidResPath });
       }
 
       return config;
     },
   ]);
 
-const withAndroidStyles: Expo.ConfigPlugin<Props> = (config, props) =>
-  Expo.withAndroidStyles(config, (config) => {
-    const { brand } = props;
+const withAndroidColors: Expo.ConfigPlugin<Props> = (config, props) =>
+  Expo.withAndroidColors(config, (config) => {
+    const { background } = props;
 
-    const item = [
-      {
-        $: { name: "postBootSplashTheme" },
-        _: "@style/AppTheme",
-      },
-      {
-        $: { name: "bootSplashBackground" },
-        _: "@color/bootsplash_background",
-      },
-      {
-        $: { name: "bootSplashLogo" },
-        _: "@drawable/bootsplash_logo",
-      },
-    ];
-
-    if (brand != null) {
-      item.push({
-        $: { name: "bootSplashBrand" },
-        _: "@drawable/bootsplash_brand",
-      });
-    }
-
-    config.modResults.resources.style?.push({
-      item,
-      $: {
-        name: "BootTheme",
-        parent: "Theme.BootSplash",
-      },
+    config.modResults = assignColorValue(config.modResults, {
+      name: "bootsplash_background",
+      value: background.hex.toLowerCase(),
     });
 
     return config;
@@ -1049,19 +1030,44 @@ const withMainActivity: Expo.ConfigPlugin<Props> = (config) =>
     };
   });
 
-const withAndroidColors: Expo.ConfigPlugin<Props> = (config, props) =>
-  Expo.withAndroidColors(config, (config) => {
-    const { background } = props;
+const withAndroidStyles: Expo.ConfigPlugin<Props> = (config, props) =>
+  Expo.withAndroidStyles(config, (config) => {
+    const { brand } = props;
 
-    config.modResults = assignColorValue(config.modResults, {
-      name: "bootsplash_background",
-      value: background.hex.toLowerCase(),
+    const item = [
+      {
+        $: { name: "postBootSplashTheme" },
+        _: "@style/AppTheme",
+      },
+      {
+        $: { name: "bootSplashBackground" },
+        _: "@color/bootsplash_background",
+      },
+      {
+        $: { name: "bootSplashLogo" },
+        _: "@drawable/bootsplash_logo",
+      },
+    ];
+
+    if (brand != null) {
+      item.push({
+        $: { name: "bootSplashBrand" },
+        _: "@drawable/bootsplash_brand",
+      });
+    }
+
+    config.modResults.resources.style?.push({
+      item,
+      $: {
+        name: "BootTheme",
+        parent: "Theme.BootSplash",
+      },
     });
 
     return config;
   });
 
-const withIosFreeAssets: Expo.ConfigPlugin<Props> = (config, props) =>
+const withIosAssets: Expo.ConfigPlugin<Props> = (config, props) =>
   Expo.withDangerousMod(config, [
     "ios",
     async (config) => {
@@ -1073,7 +1079,7 @@ const withIosFreeAssets: Expo.ConfigPlugin<Props> = (config, props) =>
       });
 
       if (iosProjectPath != null) {
-        await generateIosFreeAssets({ ...props, iosProjectPath });
+        await generateIosAssets({ ...props, iosProjectPath });
       }
 
       return config;
@@ -1150,14 +1156,14 @@ const withXcodeProject: Expo.ConfigPlugin<Props> = (config) =>
     return config;
   });
 
-const withGenericFreeAssets: Expo.ConfigPlugin<Props> = (config, props) =>
+const withGenericAssets: Expo.ConfigPlugin<Props> = (config, props) =>
   Expo.withDangerousMod(config, [
     props.basePlatform,
     async (config) => {
       const { assetsOutputPath } = props;
 
       if (assetsOutputPath != null) {
-        await generateGenericFreeAssets({ ...props, assetsOutputPath });
+        await generateGenericAssets({ ...props, assetsOutputPath });
       }
 
       return config;
@@ -1213,34 +1219,29 @@ export const withGenerate: Expo.ConfigPlugin<{
     return config;
   }
 
-  if (licenseKey != null) {
-    const addon = requireAddon();
+  const platformsPlugins: PlatformsPlugins = (licenseKey != null
+    ? requireAddon()?.plugins
+    : undefined) ?? {
+    android: [withAndroidAssets],
+    ios: [withIosAssets, withXcodeProject],
+    generic: [withGenericAssets],
+  };
 
-    if (addon != null) {
-      plugins.push(...addon.getPlugins(props));
-    }
-  } else {
-    if (hasAndroidPlatform) {
-      plugins.push(
-        withAndroidFreeAssets,
-        withAndroidStyles,
-        withAndroidManifest,
-        withMainActivity,
-        withAndroidColors,
-      );
-    }
-
-    if (hasIosPlatform) {
-      plugins.push(
-        withIosFreeAssets,
-        withAppDelegate,
-        withInfoPlist,
-        withXcodeProject,
-      );
-    }
-
-    plugins.push(withGenericFreeAssets);
+  if (hasAndroidPlatform) {
+    plugins.push(
+      ...platformsPlugins.android,
+      withAndroidColors,
+      withAndroidManifest,
+      withMainActivity,
+      withAndroidStyles,
+    );
   }
+
+  if (hasIosPlatform) {
+    plugins.push(...platformsPlugins.ios, withAppDelegate, withInfoPlist);
+  }
+
+  plugins.push(...platformsPlugins.generic);
 
   return Expo.withPlugins(
     config,
