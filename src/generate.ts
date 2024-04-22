@@ -432,7 +432,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
     );
   }
 
-  const optionNames = {
+  const options = {
     brand: isExpo ? "brand" : "--brand",
     darkBackground: isExpo ? "darkBackground" : "--dark-background",
     darkLogo: isExpo ? "darkLogo" : "--dark-logo",
@@ -440,22 +440,23 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   };
 
   if (args.licenseKey == null && executeAddon) {
-    const options = [
-      brand != null ? optionNames.brand : "",
-      darkBackground != null ? optionNames.darkBackground : "",
-      darkLogo != null ? optionNames.darkLogo : "",
-      darkBrand != null ? optionNames.darkBrand : "",
-    ]
-      .filter((option) => option !== "")
-      .join(", ");
+    log.error(
+      `You need to specify a license key in order to use ${[
+        brand != null ? options.brand : "",
+        darkBackground != null ? options.darkBackground : "",
+        darkLogo != null ? options.darkLogo : "",
+        darkBrand != null ? options.darkBrand : "",
+      ]
+        .filter((option) => option !== "")
+        .join(", ")}.`,
+    );
 
-    log.error(`You need to specify a license key in order to use ${options}.`);
     process.exit(1);
   }
 
   if (brand == null && darkBrand != null) {
     log.error(
-      `${optionNames.darkBrand} option couldn't be used without ${optionNames.brand}.`,
+      `${options.darkBrand} option couldn't be used without ${options.brand}.`,
     );
     process.exit(1);
   }
