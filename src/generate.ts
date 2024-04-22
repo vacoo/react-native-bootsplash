@@ -168,7 +168,7 @@ export const logWrite = (
   filePath: string,
   dimensions?: { width: number; height: number },
 ) =>
-  console.log(
+  log.text(
     `    ${path.relative(workingPath, filePath)}` +
       (dimensions != null ? ` (${dimensions.width}x${dimensions.height})` : ""),
   );
@@ -1201,9 +1201,14 @@ export const withGenerate: Expo.ConfigPlugin<{
   logoWidth?: number;
 }> = (config, args = {}) => {
   const plugins: Expo.ConfigPlugin<Props>[] = [];
-
   const { platforms = [] } = config;
+  const sdkVersion = Number(config.sdkVersion?.split(".")[0]);
   const { logo } = args;
+
+  if (Number.isNaN(sdkVersion) || sdkVersion < 49) {
+    log.error("Requires Expo 49 (or higher)");
+    process.exit(1);
+  }
 
   if (logo == null) {
     log.error("Missing required argument 'logo'");
