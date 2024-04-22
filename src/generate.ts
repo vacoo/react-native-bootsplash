@@ -355,7 +355,7 @@ type CommonArgs = {
   darkBrand?: string;
 };
 
-const transformArgs = (args: CommonArgs) => {
+const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   const [nodeStringVersion = ""] = process.versions.node.split(".");
   const nodeVersion = parseInt(nodeStringVersion, 10);
 
@@ -432,15 +432,21 @@ const transformArgs = (args: CommonArgs) => {
     );
   }
 
+  const optionNames = {
+    brand: isExpo ? "brand" : "--brand",
+    darkBackground: isExpo ? "darkBackground" : "--dark-background",
+    darkLogo: isExpo ? "darkLogo" : "--dark-logo",
+    darkBrand: isExpo ? "darkBrand" : "--dark-brand",
+  };
+
   if (args.licenseKey == null && executeAddon) {
     const options = [
-      brand != null ? "brand" : "",
-      darkBackground != null ? "dark-background" : "",
-      darkLogo != null ? "dark-logo" : "",
-      darkBrand != null ? "dark-brand" : "",
+      brand != null ? optionNames.brand : "",
+      darkBackground != null ? optionNames.darkBackground : "",
+      darkLogo != null ? optionNames.darkLogo : "",
+      darkBrand != null ? optionNames.darkBrand : "",
     ]
       .filter((option) => option !== "")
-      .map((option) => `--${option}`)
       .join(", ");
 
     log.error(`You need to specify a license key in order to use ${options}.`);
@@ -448,7 +454,9 @@ const transformArgs = (args: CommonArgs) => {
   }
 
   if (brand == null && darkBrand != null) {
-    log.error("--dark-brand option couldn't be used without --brand.");
+    log.error(
+      `${optionNames.darkBrand} option couldn't be used without ${optionNames.brand}.`,
+    );
     process.exit(1);
   }
 
@@ -814,7 +822,7 @@ export const generate = async ({
   ios?: IOSProjectConfig;
 } & CommonArgs) => {
   const projectName = ios?.xcodeProject?.name;
-  const props = transformArgs(args);
+  const props = transformArgs(false, args);
 
   const {
     assetsOutputPath,
@@ -1201,7 +1209,7 @@ export const withGenerate: Expo.ConfigPlugin<{
     process.exit(1);
   }
 
-  const props = transformArgs({
+  const props = transformArgs(true, {
     ...args,
     platforms,
     logo,
