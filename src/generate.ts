@@ -1223,7 +1223,7 @@ export const withGenerate: Expo.ConfigPlugin<{
     ? requireAddon()?.plugins
     : undefined) ?? {
     android: [withAndroidAssets],
-    ios: [withIosAssets, withXcodeProject],
+    ios: [withIosAssets],
     generic: [withGenericAssets],
   };
 
@@ -1238,7 +1238,12 @@ export const withGenerate: Expo.ConfigPlugin<{
   }
 
   if (hasIosPlatform) {
-    plugins.push(...platformsPlugins.ios, withAppDelegate, withInfoPlist);
+    plugins.push(
+      ...platformsPlugins.ios,
+      withAppDelegate,
+      withInfoPlist,
+      withXcodeProject,
+    );
   }
 
   plugins.push(...platformsPlugins.generic);
