@@ -30,11 +30,7 @@ const projectRoot = findProjectRoot(workingPath);
 
 export type Color = {
   hex: string;
-  rgb: {
-    R: string;
-    G: string;
-    B: string;
-  };
+  rgb: { R: string; G: string; B: string };
 };
 
 type CommonArgs = {
@@ -399,27 +395,31 @@ const getHtmlTemplatePath = ({
 const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   const logger: Logger = {
     error: (text: string) => {
-      console.log(pc.red(`❌  ${text}`));
+      console.log(pc.red(isExpo ? `bootsplash: ${text}` : `❌  ${text}`));
     },
     text: (text: string) => {
       console.log(text);
     },
     title: (emoji: string, text: string) => {
-      console.log(`\n${emoji}  ${pc.underline(pc.bold(text))}`);
+      if (!isExpo) {
+        console.log(`\n${emoji}  ${pc.underline(pc.bold(text))}`);
+      }
     },
     warn: (text: string) => {
-      console.log(pc.yellow(`⚠️   ${text}`));
+      console.log(pc.yellow(isExpo ? `bootsplash: ${text}` : `⚠️   ${text}`));
     },
     write: (
       filePath: string,
       dimensions?: { width: number; height: number },
     ) => {
-      console.log(
-        `    ${path.relative(workingPath, filePath)}` +
-          (dimensions != null
-            ? ` (${dimensions.width}x${dimensions.height})`
-            : ""),
-      );
+      if (!isExpo) {
+        console.log(
+          `    ${path.relative(workingPath, filePath)}` +
+            (dimensions != null
+              ? ` (${dimensions.width}x${dimensions.height})`
+              : ""),
+        );
+      }
     },
   };
 
@@ -1106,16 +1106,15 @@ const withAndroidManifest: Expo.ConfigPlugin<Props> = (config) =>
     return config;
   });
 
-const withMainActivity: Expo.ConfigPlugin<Props> = (config, props) =>
+const withMainActivity: Expo.ConfigPlugin<Props> = (config) =>
   Expo.withMainActivity(config, (config) => {
     const { modResults } = config;
-    const { logger } = props;
     const { language } = modResults;
 
     const withImports = addImports(
       modResults.contents.replace(
-        /setTheme\(R\.style\.AppTheme\)/,
-        (line) => `// ${line}`,
+        /(\/\/ )?setTheme\(R\.style\.AppTheme\)/,
+        "// setTheme(R.style.AppTheme)",
       ),
       ["android.os.Bundle", "com.zoontek.rnbootsplash.RNBootSplash"],
       language === "java",
@@ -1132,13 +1131,6 @@ const withMainActivity: Expo.ConfigPlugin<Props> = (config, props) =>
         "    RNBootSplash.init(this, R.style.BootTheme)" +
         (language === "java" ? ";" : ""),
     });
-
-    if (!withInit.didMerge) {
-      logger.error(
-        `Cannot modify MainActivity.${language} because it's malformed. Please report it.`,
-      );
-      return config;
-    }
 
     return {
       ...config,
@@ -1175,13 +1167,15 @@ const withAndroidStyles: Expo.ConfigPlugin<Props> = (config, props) =>
       });
     }
 
-    config.modResults.resources.style?.push({
-      item,
-      $: {
-        name: "BootTheme",
-        parent: "Theme.BootSplash",
-      },
-    });
+    config.modResults.resources.style
+      ?.filter(({ $ }) => $.name !== "BootTheme")
+      .push({
+        item,
+        $: {
+          name: "BootTheme",
+          parent: "Theme.BootSplash",
+        },
+      });
 
     return config;
   });
@@ -1207,10 +1201,9 @@ const withIosAssets: Expo.ConfigPlugin<Props> = (config, props) =>
     },
   ]);
 
-const withAppDelegate: Expo.ConfigPlugin<Props> = (config, props) =>
+const withAppDelegate: Expo.ConfigPlugin<Props> = (config) =>
   Expo.withAppDelegate(config, (config) => {
     const { modResults } = config;
-    const { logger } = props;
     const { language } = modResults;
 
     if (language !== "objc" && language !== "objcpp") {
@@ -1242,13 +1235,6 @@ const withAppDelegate: Expo.ConfigPlugin<Props> = (config, props) =>
           }
         `,
     });
-
-    if (!withHeader.didMerge || !withRootView.didMerge) {
-      logger.error(
-        `Cannot modify AppDelegate.${language === "objc" ? "m" : "mm"} because it's malformed. Please report it.`,
-      );
-      return config;
-    }
 
     return {
       ...config,
