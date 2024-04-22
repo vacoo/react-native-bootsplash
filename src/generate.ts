@@ -1187,7 +1187,7 @@ export const withGenerate: Expo.ConfigPlugin<{
 }> = (config, args = {}) => {
   const plugins: Expo.ConfigPlugin<Props>[] = [];
 
-  const { platforms = [] } = config; // TODO: sdkVersion parse first number, then check if >= 50
+  const { platforms = [] } = config;
   const { logo } = args;
 
   if (logo == null) {
