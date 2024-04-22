@@ -134,7 +134,7 @@ export const addFileToXcodeProject = (filePath: string) => {
   });
 
   hfs.write(pbxprojectPath, project.writeSync());
-  logWrite(pbxprojectPath);
+  log.write(pbxprojectPath);
 };
 
 // Freely inspired by https://github.com/humanwhocodes/humanfs
@@ -157,25 +157,31 @@ export const hfs = {
 };
 
 export const log = {
-  error: (text: string) => console.log(pc.red(`❌  ${text}`)),
-  text: (text: string) => console.log(text),
-  title: (emoji: string, text: string) =>
-    console.log(`\n${emoji}  ${pc.underline(pc.bold(text))}`),
-  warn: (text: string) => console.log(pc.yellow(`⚠️   ${text}`)),
+  error: (text: string) => {
+    console.log(pc.red(`❌  ${text}`));
+  },
+  text: (text: string) => {
+    console.log(text);
+  },
+  title: (emoji: string, text: string) => {
+    console.log(`\n${emoji}  ${pc.underline(pc.bold(text))}`);
+  },
+  warn: (text: string) => {
+    console.log(pc.yellow(`⚠️   ${text}`));
+  },
+  write: (filePath: string, dimensions?: { width: number; height: number }) => {
+    log.text(
+      `    ${path.relative(workingPath, filePath)}` +
+        (dimensions != null
+          ? ` (${dimensions.width}x${dimensions.height})`
+          : ""),
+    );
+  },
 };
-
-export const logWrite = (
-  filePath: string,
-  dimensions?: { width: number; height: number },
-) =>
-  log.text(
-    `    ${path.relative(workingPath, filePath)}` +
-      (dimensions != null ? ` (${dimensions.width}x${dimensions.height})` : ""),
-  );
 
 export const writeJson = (file: string, json: object) => {
   hfs.write(file, JSON.stringify(json, null, 2));
-  logWrite(file);
+  log.write(file);
 };
 
 export const readXml = (file: string) => {
@@ -204,7 +210,7 @@ export const writeXml = (
   });
 
   hfs.write(file, formatted);
-  logWrite(file);
+  log.write(file);
 };
 
 export const readHtml = (file: string) => {
@@ -233,7 +239,7 @@ export const writeHtml = async (
   });
 
   hfs.write(file, formatted);
-  logWrite(file);
+  log.write(file);
 };
 
 export const cleanIosAssets = (dir: string, prefix: string) => {
@@ -592,7 +598,7 @@ export const generateAndroidAssets = async ({
           canvas.composite([{ input }]).png({ quality: 100 }).toFile(filePath),
         )
         .then(() => {
-          logWrite(filePath, {
+          log.write(filePath, {
             width: canvasSize,
             height: canvasSize,
           });
@@ -683,7 +689,7 @@ export const generateIosAssets = async ({
         .png({ quality: 100 })
         .toFile(filePath)
         .then(({ width, height }) => {
-          logWrite(filePath, { width, height });
+          log.write(filePath, { width, height });
         });
     }),
   );
@@ -808,7 +814,7 @@ export const generateGenericAssets = async ({
         .png({ quality: 100 })
         .toFile(filePath)
         .then(({ width, height }) => {
-          logWrite(filePath, { width, height });
+          log.write(filePath, { width, height });
         });
     }),
   );
@@ -910,7 +916,7 @@ export const generate = async ({
       .replace(/^\t/gm, "");
 
     hfs.write(infoPlistPath, formatted);
-    logWrite(infoPlistPath);
+    log.write(infoPlistPath);
   }
 
   if (htmlTemplatePath != null) {
