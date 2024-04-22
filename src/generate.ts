@@ -37,11 +37,45 @@ export type Color = {
   };
 };
 
-export const parseColor = (value: string): Color => {
-  const up = value.toUpperCase().replace(/[^0-9A-F]/g, "");
+type CommonArgs = {
+  platforms: string[];
+  logo: string;
+  background: string;
+  logoWidth: number;
+  assetsOutput?: string;
+  html: string;
+  flavor: string;
+
+  licenseKey?: string;
+  brand?: string;
+  brandWidth: number;
+  darkBackground?: string;
+  darkLogo?: string;
+  darkBrand?: string;
+};
+
+export type Logger = {
+  error: (text: string) => void;
+  text: (text: string) => void;
+  title: (emoji: string, text: string) => void;
+  warn: (text: string) => void;
+  write: (
+    filePath: string,
+    dimensions?: { width: number; height: number },
+  ) => void;
+};
+
+export const parseColor = ({
+  logger,
+  color,
+}: {
+  logger: Logger;
+  color: string;
+}): Color => {
+  const up = color.toUpperCase().replace(/[^0-9A-F]/g, "");
 
   if (up.length !== 3 && up.length !== 6) {
-    log.error(`"${value}" value is not a valid hexadecimal color.`);
+    logger.error(`"${color}" value is not a valid hexadecimal color.`);
     process.exit(1);
   }
 
@@ -119,7 +153,13 @@ const getStoryboard = ({
 `;
 };
 
-export const addFileToXcodeProject = (filePath: string) => {
+export const addFileToXcodeProject = ({
+  logger,
+  filePath,
+}: {
+  logger: Logger;
+  filePath: string;
+}) => {
   const pbxprojectPath = Expo.IOSConfig.Paths.getPBXProjectPath(projectRoot);
   const project = Expo.IOSConfig.XcodeUtils.getPbxproj(projectRoot);
 
@@ -134,7 +174,7 @@ export const addFileToXcodeProject = (filePath: string) => {
   });
 
   hfs.write(pbxprojectPath, project.writeSync());
-  log.write(pbxprojectPath);
+  logger.write(pbxprojectPath);
 };
 
 // Freely inspired by https://github.com/humanwhocodes/humanfs
@@ -156,32 +196,17 @@ export const hfs = {
   },
 };
 
-export const log = {
-  error: (text: string) => {
-    console.log(pc.red(`❌  ${text}`));
-  },
-  text: (text: string) => {
-    console.log(text);
-  },
-  title: (emoji: string, text: string) => {
-    console.log(`\n${emoji}  ${pc.underline(pc.bold(text))}`);
-  },
-  warn: (text: string) => {
-    console.log(pc.yellow(`⚠️   ${text}`));
-  },
-  write: (filePath: string, dimensions?: { width: number; height: number }) => {
-    log.text(
-      `    ${path.relative(workingPath, filePath)}` +
-        (dimensions != null
-          ? ` (${dimensions.width}x${dimensions.height})`
-          : ""),
-    );
-  },
-};
-
-export const writeJson = (file: string, json: object) => {
+export const writeJson = ({
+  logger,
+  file,
+  json,
+}: {
+  logger: Logger;
+  file: string;
+  json: object;
+}) => {
   hfs.write(file, JSON.stringify(json, null, 2));
-  log.write(file);
+  logger.write(file);
 };
 
 export const readXml = (file: string) => {
@@ -195,11 +220,17 @@ export const readXml = (file: string) => {
   return { root: parseHtml(xml), formatOptions };
 };
 
-export const writeXml = (
-  file: string,
-  xml: string,
-  options?: XMLFormatterOptions,
-) => {
+export const writeXml = ({
+  logger,
+  file,
+  xml,
+  options,
+}: {
+  logger: Logger;
+  file: string;
+  xml: string;
+  options?: XMLFormatterOptions;
+}) => {
   const formatted = formatXml(xml, {
     collapseContent: true,
     forceSelfClosingEmptyTag: true,
@@ -210,7 +241,7 @@ export const writeXml = (
   });
 
   hfs.write(file, formatted);
-  log.write(file);
+  logger.write(file);
 };
 
 export const readHtml = (file: string) => {
@@ -225,11 +256,17 @@ export const readHtml = (file: string) => {
   return { root: parseHtml(html), formatOptions };
 };
 
-export const writeHtml = async (
-  file: string,
-  html: string,
-  options?: Omit<PrettierOptions, "parser" | "plugins">,
-) => {
+export const writeHtml = async ({
+  logger,
+  file,
+  html,
+  options,
+}: {
+  logger: Logger;
+  file: string;
+  html: string;
+  options?: Omit<PrettierOptions, "parser" | "plugins">;
+}) => {
   const formatted = await prettier.format(html, {
     parser: "html",
     plugins: [htmlPlugin, cssPlugin],
@@ -239,7 +276,7 @@ export const writeHtml = async (
   });
 
   hfs.write(file, formatted);
-  log.write(file);
+  logger.write(file);
 };
 
 export const cleanIosAssets = (dir: string, prefix: string) => {
@@ -269,10 +306,15 @@ export const getIosAssetFileName = async ({
   return `${name}-${hash}`;
 };
 
-export const ensureSupportedFormat = async (
-  name: string,
-  image: Sharp | undefined,
-) => {
+export const ensureSupportedFormat = async ({
+  logger,
+  name,
+  image,
+}: {
+  logger: Logger;
+  name: string;
+  image: Sharp | undefined;
+}) => {
   if (image == null) {
     return;
   }
@@ -280,16 +322,18 @@ export const ensureSupportedFormat = async (
   const { format } = await image.metadata();
 
   if (format !== "png" && format !== "svg") {
-    log.error(`${name} image file format (${format}) is not supported`);
+    logger.error(`${name} image file format (${format}) is not supported`);
     process.exit(1);
   }
 };
 
 export const getAndroidResPath = ({
+  logger,
   appName,
   flavor,
   sourceDir,
 }: {
+  logger: Logger;
   appName: string;
   flavor: string;
   sourceDir: string;
@@ -297,7 +341,7 @@ export const getAndroidResPath = ({
   const androidResPath = path.resolve(sourceDir, appName, "src", flavor, "res");
 
   if (!hfs.exists(androidResPath)) {
-    log.warn(
+    logger.warn(
       `No ${path.relative(
         workingPath,
         androidResPath,
@@ -309,16 +353,18 @@ export const getAndroidResPath = ({
 };
 
 export const getIosProjectPath = ({
+  logger,
   projectName,
   sourceDir,
 }: {
+  logger: Logger;
   projectName: string;
   sourceDir: string;
 }): string | undefined => {
   const iosProjectPath = path.resolve(sourceDir, projectName);
 
   if (!hfs.exists(iosProjectPath)) {
-    log.warn(
+    logger.warn(
       `No ${path.relative(
         workingPath,
         iosProjectPath,
@@ -329,11 +375,17 @@ export const getIosProjectPath = ({
   }
 };
 
-const getHtmlTemplatePath = (html: string): string | undefined => {
+const getHtmlTemplatePath = ({
+  logger,
+  html,
+}: {
+  logger: Logger;
+  html: string;
+}): string | undefined => {
   const htmlTemplatePath = path.resolve(workingPath, html);
 
   if (!hfs.exists(htmlTemplatePath)) {
-    log.warn(
+    logger.warn(
       `No ${path.relative(
         workingPath,
         htmlTemplatePath,
@@ -344,29 +396,38 @@ const getHtmlTemplatePath = (html: string): string | undefined => {
   }
 };
 
-type CommonArgs = {
-  platforms: string[];
-  logo: string;
-  background: string;
-  logoWidth: number;
-  assetsOutput?: string;
-  html: string;
-  flavor: string;
-
-  licenseKey?: string;
-  brand?: string;
-  brandWidth: number;
-  darkBackground?: string;
-  darkLogo?: string;
-  darkBrand?: string;
-};
-
 const transformArgs = (isExpo: boolean, args: CommonArgs) => {
+  const logger: Logger = {
+    error: (text: string) => {
+      console.log(pc.red(`❌  ${text}`));
+    },
+    text: (text: string) => {
+      console.log(text);
+    },
+    title: (emoji: string, text: string) => {
+      console.log(`\n${emoji}  ${pc.underline(pc.bold(text))}`);
+    },
+    warn: (text: string) => {
+      console.log(pc.yellow(`⚠️   ${text}`));
+    },
+    write: (
+      filePath: string,
+      dimensions?: { width: number; height: number },
+    ) => {
+      console.log(
+        `    ${path.relative(workingPath, filePath)}` +
+          (dimensions != null
+            ? ` (${dimensions.width}x${dimensions.height})`
+            : ""),
+      );
+    },
+  };
+
   const [nodeStringVersion = ""] = process.versions.node.split(".");
   const nodeVersion = parseInt(nodeStringVersion, 10);
 
   if (!isNaN(nodeVersion) && nodeVersion < 18) {
-    log.error("Requires Node 18 (or higher)");
+    logger.error("Requires Node 18 (or higher)");
     process.exit(1);
   }
 
@@ -398,7 +459,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
       : undefined;
 
   const htmlTemplatePath = hasWebPlatform
-    ? getHtmlTemplatePath(args.html)
+    ? getHtmlTemplatePath({ logger, html: args.html })
     : undefined;
 
   const logo = sharp(logoPath);
@@ -406,20 +467,23 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   const brand = brandPath != null ? sharp(brandPath) : undefined;
   const darkBrand = darkBrandPath != null ? sharp(darkBrandPath) : undefined;
 
-  const background = parseColor(args.background);
+  const background = parseColor({ logger, color: args.background });
+
   const darkBackground =
-    args.darkBackground != null ? parseColor(args.darkBackground) : undefined;
+    args.darkBackground != null
+      ? parseColor({ logger, color: args.darkBackground })
+      : undefined;
 
   const logoWidth = args.logoWidth - (args.logoWidth % 2);
   const brandWidth = args.brandWidth - (args.brandWidth % 2);
 
   if (logoWidth < args.logoWidth) {
-    log.warn(
+    logger.warn(
       `Logo width must be a multiple of 2. It has been rounded to ${logoWidth}dp.`,
     );
   }
   if (brandWidth < args.brandWidth) {
-    log.warn(
+    logger.warn(
       `Brand width must be a multiple of 2. It has been rounded to ${brandWidth}dp.`,
     );
   }
@@ -433,7 +497,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   const licenseKey = executeAddon ? args.licenseKey : undefined;
 
   if (args.licenseKey != null && !executeAddon) {
-    log.warn(
+    logger.warn(
       `You specified a license key but none of the options that requires it.`,
     );
   }
@@ -446,7 +510,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   };
 
   if (args.licenseKey == null && executeAddon) {
-    log.error(
+    logger.error(
       `You need to specify a license key in order to use ${[
         brand != null ? options.brand : "",
         darkBackground != null ? options.darkBackground : "",
@@ -461,7 +525,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   }
 
   if (brand == null && darkBrand != null) {
-    log.error(
+    logger.error(
       `${options.darkBrand} option couldn't be used without ${options.brand}.`,
     );
     process.exit(1);
@@ -484,6 +548,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
     hasIosPlatform,
     htmlTemplatePath,
     licenseKey,
+    logger,
     logo,
     logoPath,
     logoWidth,
@@ -533,26 +598,27 @@ export const getImageHeight = (
 };
 
 export const generateAndroidAssets = async ({
+  logger,
   androidResPath,
   logo,
   logoWidth,
 }: Props & {
   androidResPath: string;
 }): Promise<void> => {
-  await ensureSupportedFormat("Logo", logo);
+  await ensureSupportedFormat({ logger, name: "Logo", image: logo });
 
-  log.title("🤖", "Android");
+  logger.title("🤖", "Android");
 
   const logoHeight = await getImageHeight(logo, logoWidth);
 
   if (logoWidth > 288 || logoHeight > 288) {
-    return log.warn(
+    return logger.warn(
       "Logo size exceeding 288x288dp will be cropped by Android. Skipping Android assets generation…",
     );
   }
 
   if (logoWidth > 192 || logoHeight > 192) {
-    log.warn(`Logo size exceeds 192x192dp. It might be cropped by Android.`);
+    logger.warn(`Logo size exceeds 192x192dp. It might be cropped by Android.`);
   }
 
   await Promise.all(
@@ -598,7 +664,7 @@ export const generateAndroidAssets = async ({
           canvas.composite([{ input }]).png({ quality: 100 }).toFile(filePath),
         )
         .then(() => {
-          log.write(filePath, {
+          logger.write(filePath, {
             width: canvasSize,
             height: canvasSize,
           });
@@ -608,30 +674,34 @@ export const generateAndroidAssets = async ({
 };
 
 export const generateIosAssets = async ({
-  background,
+  logger,
   iosProjectPath,
+  background,
   logo,
   logoWidth,
 }: Props & {
   iosProjectPath: string;
 }): Promise<void> => {
-  await ensureSupportedFormat("Logo", logo);
+  await ensureSupportedFormat({ logger, name: "Logo", image: logo });
 
-  log.title("🍏", "iOS");
+  logger.title("🍏", "iOS");
 
   const logoHeight = await getImageHeight(logo, logoWidth);
 
   const storyboardPath = path.resolve(iosProjectPath, "BootSplash.storyboard");
 
-  writeXml(
-    storyboardPath,
-    getStoryboard({
+  writeXml({
+    logger,
+    file: storyboardPath,
+    xml: getStoryboard({
       logoHeight,
       logoWidth,
       background: background.rgb,
     }),
-    { whiteSpaceAtEndOfSelfclosingTag: false },
-  );
+    options: {
+      whiteSpaceAtEndOfSelfclosingTag: false,
+    },
+  });
 
   const imageSetPath = path.resolve(
     iosProjectPath,
@@ -648,27 +718,31 @@ export const generateIosAssets = async ({
     width: logoWidth,
   });
 
-  writeJson(path.resolve(imageSetPath, "Contents.json"), {
-    images: [
-      {
-        idiom: "universal",
-        filename: `${logoFileName}.png`,
-        scale: "1x",
+  writeJson({
+    logger,
+    file: path.resolve(imageSetPath, "Contents.json"),
+    json: {
+      images: [
+        {
+          idiom: "universal",
+          filename: `${logoFileName}.png`,
+          scale: "1x",
+        },
+        {
+          idiom: "universal",
+          filename: `${logoFileName}@2x.png`,
+          scale: "2x",
+        },
+        {
+          idiom: "universal",
+          filename: `${logoFileName}@3x.png`,
+          scale: "3x",
+        },
+      ],
+      info: {
+        author: "xcode",
+        version: 1,
       },
-      {
-        idiom: "universal",
-        filename: `${logoFileName}@2x.png`,
-        scale: "2x",
-      },
-      {
-        idiom: "universal",
-        filename: `${logoFileName}@3x.png`,
-        scale: "3x",
-      },
-    ],
-    info: {
-      author: "xcode",
-      version: 1,
     },
   });
 
@@ -689,24 +763,25 @@ export const generateIosAssets = async ({
         .png({ quality: 100 })
         .toFile(filePath)
         .then(({ width, height }) => {
-          log.write(filePath, { width, height });
+          logger.write(filePath, { width, height });
         });
     }),
   );
 };
 
 export const generateWebAssets = async ({
-  background,
+  logger,
   htmlTemplatePath,
+  background,
   logo,
   logoPath,
   logoWidth,
 }: Props & {
   htmlTemplatePath: string;
 }): Promise<void> => {
-  await ensureSupportedFormat("Logo", logo);
+  await ensureSupportedFormat({ logger, name: "Logo", image: logo });
 
-  log.title("🌐", "Web");
+  logger.title("🌐", "Web");
 
   const logoHeight = await getImageHeight(logo, logoWidth);
 
@@ -768,10 +843,16 @@ export const generateWebAssets = async ({
     root.querySelector("body")?.appendChild(nextDiv);
   }
 
-  return writeHtml(htmlTemplatePath, root.toString(), formatOptions);
+  return writeHtml({
+    logger,
+    file: htmlTemplatePath,
+    html: root.toString(),
+    options: formatOptions,
+  });
 };
 
 export const generateGenericAssets = async ({
+  logger,
   assetsOutputPath,
   background,
   logo,
@@ -779,21 +860,25 @@ export const generateGenericAssets = async ({
 }: Props & {
   assetsOutputPath: string;
 }): Promise<void> => {
-  await ensureSupportedFormat("Logo", logo);
+  await ensureSupportedFormat({ logger, name: "Logo", image: logo });
 
-  log.title("📄", "Assets");
+  logger.title("📄", "Assets");
 
   const logoHeight = await getImageHeight(logo, logoWidth);
 
   hfs.ensureDir(assetsOutputPath);
 
-  writeJson(path.resolve(assetsOutputPath, "bootsplash_manifest.json"), {
-    background: background.hex,
-    logo: {
-      width: logoWidth,
-      height: logoHeight,
-    },
-  } satisfies Manifest);
+  writeJson({
+    logger,
+    file: path.resolve(assetsOutputPath, "bootsplash_manifest.json"),
+    json: {
+      background: background.hex,
+      logo: {
+        width: logoWidth,
+        height: logoHeight,
+      },
+    } satisfies Manifest,
+  });
 
   await Promise.all(
     [
@@ -814,7 +899,7 @@ export const generateGenericAssets = async ({
         .png({ quality: 100 })
         .toFile(filePath)
         .then(({ width, height }) => {
-          log.write(filePath, { width, height });
+          logger.write(filePath, { width, height });
         });
     }),
   );
@@ -832,21 +917,23 @@ export const generate = async ({
   const props = transformArgs(false, args);
 
   const {
+    licenseKey,
+    logger,
     assetsOutputPath,
     background,
     hasAndroidPlatform,
     hasIosPlatform,
     htmlTemplatePath,
-    licenseKey,
   } = props;
 
   if (ios != null && projectName == null) {
-    log.warn("No Xcode project found. Skipping iOS assets generation…");
+    logger.warn("No Xcode project found. Skipping iOS assets generation…");
   }
 
   const androidResPath =
     hasAndroidPlatform && android != null
       ? getAndroidResPath({
+          logger,
           appName: android.appName,
           flavor: args.flavor,
           sourceDir: android.sourceDir,
@@ -856,6 +943,7 @@ export const generate = async ({
   const iosProjectPath =
     hasIosPlatform && ios != null && projectName != null
       ? getIosProjectPath({
+          logger,
           sourceDir: ios.sourceDir,
           projectName: projectName.replace(/\.(xcodeproj|xcworkspace)$/, ""),
         })
@@ -883,18 +971,31 @@ export const generate = async ({
         root.querySelector("resources")?.appendChild(nextColor);
       }
 
-      writeXml(colorsXmlPath, root.toString(), formatOptions);
+      writeXml({
+        logger,
+        file: colorsXmlPath,
+        xml: root.toString(),
+        options: formatOptions,
+      });
     } else {
-      writeXml(colorsXmlPath, `<resources>${colorsXmlEntry}</resources>`);
+      writeXml({
+        logger,
+        file: colorsXmlPath,
+        xml: `<resources>${colorsXmlEntry}</resources>`,
+      });
     }
   }
 
   if (iosProjectPath != null) {
     await generateIosAssets({ ...props, iosProjectPath });
 
-    addFileToXcodeProject(
-      path.join(path.basename(iosProjectPath), "BootSplash.storyboard"),
-    );
+    addFileToXcodeProject({
+      logger,
+      filePath: path.join(
+        path.basename(iosProjectPath),
+        "BootSplash.storyboard",
+      ),
+    });
 
     const infoPlistPath = path.join(iosProjectPath, "Info.plist");
 
@@ -916,7 +1017,7 @@ export const generate = async ({
       .replace(/^\t/gm, "");
 
     hfs.write(infoPlistPath, formatted);
-    log.write(infoPlistPath);
+    logger.write(infoPlistPath);
   }
 
   if (htmlTemplatePath != null) {
@@ -936,7 +1037,7 @@ export const generate = async ({
       iosProjectPath,
     });
   } else {
-    log.text(`
+    logger.text(`
 ${pc.blue("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")}
 ${pc.blue("┃")}  🔑  ${pc.bold(
       "Get a license key for brand image / dark mode support",
@@ -947,22 +1048,22 @@ ${pc.blue("┃")}      ${pc.underline(
 ${pc.blue("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")}`);
   }
 
-  log.text(`\n💖  Thanks for using ${pc.underline("react-native-bootsplash")}`);
+  logger.text(
+    `\n💖  Thanks for using ${pc.underline("react-native-bootsplash")}`,
+  );
 };
 
 // Expo plugin
-
-const logFileUpdateError = (file: string) =>
-  log.error(`Cannot modify ${file} because it's malformed. Please report it.`);
 
 const withAndroidAssets: Expo.ConfigPlugin<Props> = (config, props) =>
   Expo.withDangerousMod(config, [
     "android",
     async (config) => {
       const { platformProjectRoot } = config.modRequest;
-      const { flavor } = props;
+      const { logger, flavor } = props;
 
       const androidResPath = getAndroidResPath({
+        logger,
         appName: "app",
         flavor,
         sourceDir: platformProjectRoot,
@@ -1005,9 +1106,10 @@ const withAndroidManifest: Expo.ConfigPlugin<Props> = (config) =>
     return config;
   });
 
-const withMainActivity: Expo.ConfigPlugin<Props> = (config) =>
+const withMainActivity: Expo.ConfigPlugin<Props> = (config, props) =>
   Expo.withMainActivity(config, (config) => {
     const { modResults } = config;
+    const { logger } = props;
     const { language } = modResults;
 
     const withImports = addImports(
@@ -1032,7 +1134,9 @@ const withMainActivity: Expo.ConfigPlugin<Props> = (config) =>
     });
 
     if (!withInit.didMerge) {
-      logFileUpdateError(`MainActivity.${language}`);
+      logger.error(
+        `Cannot modify MainActivity.${language} because it's malformed. Please report it.`,
+      );
       return config;
     }
 
@@ -1087,8 +1191,10 @@ const withIosAssets: Expo.ConfigPlugin<Props> = (config, props) =>
     "ios",
     async (config) => {
       const { platformProjectRoot, projectName = "" } = config.modRequest;
+      const { logger } = props;
 
       const iosProjectPath = getIosProjectPath({
+        logger,
         sourceDir: platformProjectRoot,
         projectName,
       });
@@ -1101,9 +1207,10 @@ const withIosAssets: Expo.ConfigPlugin<Props> = (config, props) =>
     },
   ]);
 
-const withAppDelegate: Expo.ConfigPlugin<Props> = (config) =>
+const withAppDelegate: Expo.ConfigPlugin<Props> = (config, props) =>
   Expo.withAppDelegate(config, (config) => {
     const { modResults } = config;
+    const { logger } = props;
     const { language } = modResults;
 
     if (language !== "objc" && language !== "objcpp") {
@@ -1137,7 +1244,9 @@ const withAppDelegate: Expo.ConfigPlugin<Props> = (config) =>
     });
 
     if (!withHeader.didMerge || !withRootView.didMerge) {
-      logFileUpdateError(`AppDelegate.${language === "objc" ? "m" : "mm"}`);
+      logger.error(
+        `Cannot modify AppDelegate.${language === "objc" ? "m" : "mm"} because it's malformed. Please report it.`,
+      );
       return config;
     }
 
@@ -1209,17 +1318,7 @@ export const withGenerate: Expo.ConfigPlugin<{
   const plugins: Expo.ConfigPlugin<Props>[] = [];
   const { platforms = [] } = config;
   const sdkVersion = Number(config.sdkVersion?.split(".")[0]);
-  const { logo } = args;
-
-  if (Number.isNaN(sdkVersion) || sdkVersion < 49) {
-    log.error("Requires Expo 49 (or higher)");
-    process.exit(1);
-  }
-
-  if (logo == null) {
-    log.error("Missing required argument 'logo'");
-    process.exit(1);
-  }
+  const { logo = "" } = args;
 
   const props = transformArgs(true, {
     ...args,
@@ -1233,7 +1332,17 @@ export const withGenerate: Expo.ConfigPlugin<{
     html: "index.html",
   });
 
-  const { hasAndroidPlatform, hasIosPlatform, licenseKey } = props;
+  const { logger, hasAndroidPlatform, hasIosPlatform, licenseKey } = props;
+
+  if (Number.isNaN(sdkVersion) || sdkVersion < 49) {
+    logger.error("Requires Expo 49 (or higher)");
+    process.exit(1);
+  }
+
+  if (logo === "") {
+    logger.error("Missing required argument 'logo'");
+    process.exit(1);
+  }
 
   if (!hasAndroidPlatform && !hasIosPlatform) {
     return config;
