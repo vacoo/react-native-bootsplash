@@ -344,7 +344,7 @@ export const getAndroidResPath = ({
       `No ${path.relative(
         workingPath,
         androidResPath,
-      )} directory found. Skipping Android assets generation…`,
+      )} directory found. Skipping…`,
     );
   } else {
     return androidResPath;
@@ -367,7 +367,7 @@ export const getIosProjectPath = ({
       `No ${path.relative(
         workingPath,
         iosProjectPath,
-      )} directory found. Skipping iOS assets generation…`,
+      )} directory found. Skipping…`,
     );
   } else {
     return iosProjectPath;
@@ -632,65 +632,70 @@ export const generateAndroidAssets = async ({
   const logoHeight = await getImageHeight(logo, logoWidth);
 
   if (logoWidth > 288 || logoHeight > 288) {
-    return logger.warn(
-      "Logo size exceeding 288x288dp will be cropped by Android. Skipping Android assets generation…",
+    logger.warn(
+      "Logo size exceeding 288x288dp will be cropped by Android. Skipping…",
     );
-  }
-
-  if (logoWidth > 192 || logoHeight > 192) {
-    logger.warn(`Logo size exceeds 192x192dp. It might be cropped by Android.`);
-  }
-
-  await Promise.all(
-    [
-      { ratio: 1, suffix: "mdpi" },
-      { ratio: 1.5, suffix: "hdpi" },
-      { ratio: 2, suffix: "xhdpi" },
-      { ratio: 3, suffix: "xxhdpi" },
-      { ratio: 4, suffix: "xxxhdpi" },
-    ].map(({ ratio, suffix }) => {
-      const drawableDirPath = path.resolve(
-        androidResPath,
-        `drawable-${suffix}`,
+  } else {
+    if (logoWidth > 192 || logoHeight > 192) {
+      logger.warn(
+        `Logo size exceeds 192x192dp. It might be cropped by Android.`,
       );
+    }
 
-      hfs.ensureDir(drawableDirPath);
+    await Promise.all(
+      [
+        { ratio: 1, suffix: "mdpi" },
+        { ratio: 1.5, suffix: "hdpi" },
+        { ratio: 2, suffix: "xhdpi" },
+        { ratio: 3, suffix: "xxhdpi" },
+        { ratio: 4, suffix: "xxxhdpi" },
+      ].map(({ ratio, suffix }) => {
+        const drawableDirPath = path.resolve(
+          androidResPath,
+          `drawable-${suffix}`,
+        );
 
-      // https://developer.android.com/develop/ui/views/launch/splash-screen#dimensions
-      const canvasSize = 288 * ratio;
+        hfs.ensureDir(drawableDirPath);
 
-      // https://sharp.pixelplumbing.com/api-constructor
-      const canvas = sharp({
-        create: {
-          width: canvasSize,
-          height: canvasSize,
-          channels: 4,
-          background: {
-            r: 255,
-            g: 255,
-            b: 255,
-            alpha: 0,
-          },
-        },
-      });
+        // https://developer.android.com/develop/ui/views/launch/splash-screen#dimensions
+        const canvasSize = 288 * ratio;
 
-      const filePath = path.resolve(drawableDirPath, "bootsplash_logo.png");
-
-      return logo
-        .clone()
-        .resize(logoWidth * ratio)
-        .toBuffer()
-        .then((input) =>
-          canvas.composite([{ input }]).png({ quality: 100 }).toFile(filePath),
-        )
-        .then(() => {
-          logger.write(filePath, {
+        // https://sharp.pixelplumbing.com/api-constructor
+        const canvas = sharp({
+          create: {
             width: canvasSize,
             height: canvasSize,
-          });
+            channels: 4,
+            background: {
+              r: 255,
+              g: 255,
+              b: 255,
+              alpha: 0,
+            },
+          },
         });
-    }),
-  );
+
+        const filePath = path.resolve(drawableDirPath, "bootsplash_logo.png");
+
+        return logo
+          .clone()
+          .resize(logoWidth * ratio)
+          .toBuffer()
+          .then((input) =>
+            canvas
+              .composite([{ input }])
+              .png({ quality: 100 })
+              .toFile(filePath),
+          )
+          .then(() => {
+            logger.write(filePath, {
+              width: canvasSize,
+              height: canvasSize,
+            });
+          });
+      }),
+    );
+  }
 };
 
 export const generateIosAssets = async ({
@@ -804,6 +809,7 @@ export const generateWebAssets = async ({
   logger.title("🌐", "Web");
 
   const logoHeight = await getImageHeight(logo, logoWidth);
+
   const { root, formatOptions } = readHtml(htmlTemplatePath);
   const { format } = await logo.metadata();
   const prevStyle = root.querySelector("#bootsplash-style");
@@ -949,7 +955,7 @@ export const generate = async ({
   showNonFatalLogs();
 
   if (ios != null && projectName == null) {
-    logger.warn("No Xcode project found. Skipping iOS assets generation…");
+    logger.warn("No Xcode project found. Skipping…");
   }
 
   const androidResPath =
