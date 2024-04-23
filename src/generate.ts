@@ -25,6 +25,9 @@ import { dedent } from "ts-dedent";
 import formatXml, { XMLFormatterOptions } from "xml-formatter";
 import { Manifest } from ".";
 
+const packageName = "react-native-bootsplash";
+const addonLink = "https://zoontek.gumroad.com/l/bootsplash-generator";
+
 const workingPath = process.env.INIT_CWD ?? process.env.PWD ?? process.cwd();
 const projectRoot = findProjectRoot(workingPath);
 
@@ -52,9 +55,9 @@ type CommonArgs = {
 
 export type Logger = {
   error: (text: string) => void;
-  text: (text: string) => void;
-  title: (emoji: string, text: string) => void;
+  info: (text: string) => void;
   warn: (text: string) => void;
+  title: (emoji: string, text: string) => void;
   write: (
     filePath: string,
     dimensions?: { width: number; height: number },
@@ -395,18 +398,26 @@ const getHtmlTemplatePath = ({
 const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   const logger: Logger = {
     error: (text: string) => {
-      console.log(pc.red(isExpo ? `bootsplash: ${text}` : `❌  ${text}`));
+      console.log(
+        pc.red(isExpo ? `» ${pc.bold(packageName)}: ${text}` : `❌  ${text}`),
+      );
     },
-    text: (text: string) => {
-      console.log(text);
+    info: (text: string) => {
+      console.log(
+        pc.blue(isExpo ? `» ${pc.bold(packageName)}: ${text}` : `ℹ️   ${text}`),
+      );
+    },
+    warn: (text: string) => {
+      console.log(
+        pc.yellow(
+          isExpo ? `» ${pc.bold(packageName)}: ${text}` : `⚠️   ${text}`,
+        ),
+      );
     },
     title: (emoji: string, text: string) => {
       if (!isExpo) {
         console.log(`\n${emoji}  ${pc.underline(pc.bold(text))}`);
       }
-    },
-    warn: (text: string) => {
-      console.log(pc.yellow(isExpo ? `bootsplash: ${text}` : `⚠️   ${text}`));
     },
     write: (
       filePath: string,
@@ -477,17 +488,6 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   const logoWidth = args.logoWidth - (args.logoWidth % 2);
   const brandWidth = args.brandWidth - (args.brandWidth % 2);
 
-  if (logoWidth < args.logoWidth) {
-    logger.warn(
-      `Logo width must be a multiple of 2. It has been rounded to ${logoWidth}dp.`,
-    );
-  }
-  if (brandWidth < args.brandWidth) {
-    logger.warn(
-      `Brand width must be a multiple of 2. It has been rounded to ${brandWidth}dp.`,
-    );
-  }
-
   const executeAddon =
     brand != null ||
     darkBackground != null ||
@@ -495,12 +495,6 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
     darkBrand != null;
 
   const licenseKey = executeAddon ? args.licenseKey : undefined;
-
-  if (args.licenseKey != null && !executeAddon) {
-    logger.warn(
-      `You specified a license key but none of the options that requires it.`,
-    );
-  }
 
   const options = {
     brand: isExpo ? "brand" : "--brand",
@@ -532,6 +526,30 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
     process.exit(1);
   }
 
+  const showNonFatalLogs = () => {
+    if (logoWidth < args.logoWidth) {
+      logger.warn(
+        `Logo width must be a multiple of 2. It has been rounded to ${logoWidth}dp.`,
+      );
+    }
+
+    if (brandWidth < args.brandWidth) {
+      logger.warn(
+        `Brand width must be a multiple of 2. It has been rounded to ${brandWidth}dp.`,
+      );
+    }
+
+    if (args.licenseKey == null) {
+      logger.info(
+        `Get a license key for brand image / dark mode support: ${addonLink}`,
+      );
+    } else if (!executeAddon) {
+      logger.warn(
+        `You specified a license key but none of the options that requires it.`,
+      );
+    }
+  };
+
   return {
     assetsOutputPath,
     background,
@@ -553,6 +571,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
     logo,
     logoPath,
     logoWidth,
+    showNonFatalLogs,
   } as const;
 };
 
@@ -917,14 +936,17 @@ export const generate = async ({
   const props = transformArgs(false, args);
 
   const {
-    licenseKey,
-    logger,
     assetsOutputPath,
     background,
     hasAndroidPlatform,
     hasIosPlatform,
     htmlTemplatePath,
+    licenseKey,
+    logger,
+    showNonFatalLogs,
   } = props;
+
+  showNonFatalLogs();
 
   if (ios != null && projectName == null) {
     logger.warn("No Xcode project found. Skipping iOS assets generation…");
@@ -1038,20 +1060,16 @@ export const generate = async ({
       iosProjectPath,
     });
   } else {
-    logger.text(`
+    console.log(`
 ${pc.blue("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")}
 ${pc.blue("┃")}  🔑  ${pc.bold(
       "Get a license key for brand image / dark mode support",
     )}  ${pc.blue("┃")}
-${pc.blue("┃")}      ${pc.underline(
-      "https://zoontek.gumroad.com/l/bootsplash-generator",
-    )}     ${pc.blue("┃")}
+${pc.blue("┃")}      ${pc.underline(addonLink)}     ${pc.blue("┃")}
 ${pc.blue("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")}`);
   }
 
-  logger.text(
-    `\n💖  Thanks for using ${pc.underline("react-native-bootsplash")}`,
-  );
+  console.log(`\n💖  Thanks for using ${pc.underline(packageName)}`);
 };
 
 // Expo plugin
@@ -1281,6 +1299,15 @@ const withGenericAssets: Expo.ConfigPlugin<Props> = (config, props) =>
     },
   ]);
 
+const withNonFatalLogs: Expo.ConfigPlugin<Props> = (config, props) =>
+  Expo.withDangerousMod(config, [
+    props.basePlatform,
+    (config) => {
+      props.showNonFatalLogs();
+      return config;
+    },
+  ]);
+
 const getEnvFileLicenseKey = () => {
   const absoluteDotenvFile = getEnv(projectRoot).files[0];
 
@@ -1362,7 +1389,7 @@ export const withGenerate: Expo.ConfigPlugin<{
     );
   }
 
-  plugins.push(...platformsPlugins.generic);
+  plugins.push(...platformsPlugins.generic, withNonFatalLogs);
 
   return Expo.withPlugins(
     config,
