@@ -447,7 +447,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   const hasAndroidPlatform = platforms.includes("android");
   const hasIosPlatform = platforms.includes("ios");
   const hasWebPlatform = platforms.includes("web");
-  const basePlatform = hasIosPlatform ? "android" : "ios";
+  const basePlatform = hasAndroidPlatform ? "android" : "ios";
 
   const logoPath = path.resolve(workingPath, args.logo);
 
