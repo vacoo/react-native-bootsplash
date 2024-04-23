@@ -186,27 +186,27 @@ export const hfs = {
   ensureDir: (dir: string) => {
     fs.mkdirSync(dir, { recursive: true });
   },
-  write: (file: string, data: string) => {
-    const trimmed = data.trim();
-    fs.writeFileSync(file, trimmed === "" ? trimmed : trimmed + "\n", "utf-8");
+  write: (path: string, content: string) => {
+    const trimmed = content.trim();
+    fs.writeFileSync(path, trimmed === "" ? trimmed : trimmed + "\n", "utf-8");
   },
 };
 
 export const writeJson = ({
   logger,
-  file,
-  json,
+  filePath,
+  content,
 }: {
   logger: Logger;
-  file: string;
-  json: object;
+  filePath: string;
+  content: object;
 }) => {
-  hfs.write(file, JSON.stringify(json, null, 2));
-  logger.write(file);
+  hfs.write(filePath, JSON.stringify(content, null, 2));
+  logger.write(filePath);
 };
 
-export const readXml = (file: string) => {
-  const xml = hfs.text(file);
+export const readXml = (filePath: string) => {
+  const xml = hfs.text(filePath);
   const { indent } = detectIndent(xml);
 
   const formatOptions: XMLFormatterOptions = {
@@ -218,16 +218,16 @@ export const readXml = (file: string) => {
 
 export const writeXml = ({
   logger,
-  file,
-  xml,
+  filePath,
+  content,
   options,
 }: {
   logger: Logger;
-  file: string;
-  xml: string;
+  filePath: string;
+  content: string;
   options?: XMLFormatterOptions;
 }) => {
-  const formatted = formatXml(xml, {
+  const formatted = formatXml(content, {
     collapseContent: true,
     forceSelfClosingEmptyTag: true,
     indentation: "    ",
@@ -236,12 +236,12 @@ export const writeXml = ({
     ...options,
   });
 
-  hfs.write(file, formatted);
-  logger.write(file);
+  hfs.write(filePath, formatted);
+  logger.write(filePath);
 };
 
-export const readHtml = (file: string) => {
-  const html = hfs.text(file);
+export const readHtml = (filePath: string) => {
+  const html = hfs.text(filePath);
   const { type, amount } = detectIndent(html);
 
   const formatOptions: PrettierOptions = {
@@ -254,16 +254,16 @@ export const readHtml = (file: string) => {
 
 export const writeHtml = async ({
   logger,
-  file,
-  html,
+  filePath,
+  content,
   options,
 }: {
   logger: Logger;
-  file: string;
-  html: string;
+  filePath: string;
+  content: string;
   options?: Omit<PrettierOptions, "parser" | "plugins">;
 }) => {
-  const formatted = await prettier.format(html, {
+  const formatted = await prettier.format(content, {
     parser: "html",
     plugins: [htmlPlugin, cssPlugin],
     tabWidth: 2,
@@ -271,8 +271,8 @@ export const writeHtml = async ({
     ...options,
   });
 
-  hfs.write(file, formatted);
-  logger.write(file);
+  hfs.write(filePath, formatted);
+  logger.write(filePath);
 };
 
 export const cleanIosAssets = (dir: string, prefix: string) => {
@@ -528,6 +528,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
     logger.error(
       `${options.darkBrand} option couldn't be used without ${options.brand}.`,
     );
+
     process.exit(1);
   }
 
@@ -692,8 +693,8 @@ export const generateIosAssets = async ({
 
   writeXml({
     logger,
-    file: storyboardPath,
-    xml: getStoryboard({
+    filePath: storyboardPath,
+    content: getStoryboard({
       logoHeight,
       logoWidth,
       background: background.rgb,
@@ -720,8 +721,8 @@ export const generateIosAssets = async ({
 
   writeJson({
     logger,
-    file: path.resolve(imageSetPath, "Contents.json"),
-    json: {
+    filePath: path.resolve(imageSetPath, "Contents.json"),
+    content: {
       images: [
         {
           idiom: "universal",
@@ -784,7 +785,6 @@ export const generateWebAssets = async ({
   logger.title("🌐", "Web");
 
   const logoHeight = await getImageHeight(logo, logoWidth);
-
   const { root, formatOptions } = readHtml(htmlTemplatePath);
   const { format } = await logo.metadata();
   const prevStyle = root.querySelector("#bootsplash-style");
@@ -845,8 +845,8 @@ export const generateWebAssets = async ({
 
   return writeHtml({
     logger,
-    file: htmlTemplatePath,
-    html: root.toString(),
+    filePath: htmlTemplatePath,
+    content: root.toString(),
     options: formatOptions,
   });
 };
@@ -870,8 +870,8 @@ export const generateGenericAssets = async ({
 
   writeJson({
     logger,
-    file: path.resolve(assetsOutputPath, "bootsplash_manifest.json"),
-    json: {
+    filePath: path.resolve(assetsOutputPath, "bootsplash_manifest.json"),
+    content: {
       background: background.hex,
       logo: {
         width: logoWidth,
@@ -944,8 +944,8 @@ export const generate = async ({
     hasIosPlatform && ios != null && projectName != null
       ? getIosProjectPath({
           logger,
-          sourceDir: ios.sourceDir,
           projectName: projectName.replace(/\.(xcodeproj|xcworkspace)$/, ""),
+          sourceDir: ios.sourceDir,
         })
       : undefined;
 
@@ -961,6 +961,7 @@ export const generate = async ({
     if (hfs.exists(colorsXmlPath)) {
       const { root, formatOptions } = readXml(colorsXmlPath);
       const nextColor = parseHtml(colorsXmlEntry);
+
       const prevColor = root.querySelector(
         'color[name="bootsplash_background"]',
       );
@@ -973,15 +974,15 @@ export const generate = async ({
 
       writeXml({
         logger,
-        file: colorsXmlPath,
-        xml: root.toString(),
+        filePath: colorsXmlPath,
+        content: root.toString(),
         options: formatOptions,
       });
     } else {
       writeXml({
         logger,
-        file: colorsXmlPath,
-        xml: `<resources>${colorsXmlEntry}</resources>`,
+        filePath: colorsXmlPath,
+        content: `<resources>${colorsXmlEntry}</resources>`,
       });
     }
   }
