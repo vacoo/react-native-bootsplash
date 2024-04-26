@@ -36,23 +36,6 @@ export type Color = {
   rgb: { R: string; G: string; B: string };
 };
 
-type CommonArgs = {
-  platforms: string[];
-  logo: string;
-  background: string;
-  logoWidth: number;
-  assetsOutput?: string;
-  html: string;
-  flavor: string;
-
-  licenseKey?: string;
-  brand?: string;
-  brandWidth: number;
-  darkBackground?: string;
-  darkLogo?: string;
-  darkBrand?: string;
-};
-
 export type Logger = {
   error: (text: string) => void;
   info: (text: string) => void;
@@ -186,6 +169,14 @@ export const hfs = {
   rm: (path: string) => fs.rmSync(path, { force: true }),
   text: (path: string) => fs.readFileSync(path, "utf-8"),
 
+  copy: (src: string, dest: string) => {
+    const srcBuffer = fs.readFileSync(src);
+    const destBuffer = fs.readFileSync(dest);
+
+    if (!srcBuffer.equals(destBuffer)) {
+      fs.copyFileSync(src, dest);
+    }
+  },
   ensureDir: (dir: string) => {
     fs.mkdirSync(dir, { recursive: true });
   },
@@ -381,6 +372,7 @@ const getHtmlTemplatePath = ({
   logger: Logger;
   html: string;
 }): string | undefined => {
+  // TODO: Check first without, then with "public/"
   const htmlTemplatePath = path.resolve(workingPath, html);
 
   if (!hfs.exists(htmlTemplatePath)) {
@@ -395,7 +387,76 @@ const getHtmlTemplatePath = ({
   }
 };
 
-const transformArgs = (isExpo: boolean, args: CommonArgs) => {
+const getEnvFileLicenseKey = () => {
+  const absoluteDotenvFile = getEnv(projectRoot).files[0];
+
+  if (absoluteDotenvFile != null) {
+    const env = dotenv.parse(hfs.text(absoluteDotenvFile));
+    return env["BOOTSPLASH_LICENSE_KEY"];
+  }
+};
+
+type CommandInput = {
+  assetsOutput?: string;
+  background: string;
+  brand?: string;
+  brandWidth: number;
+  darkBackground?: string;
+  darkBrand?: string;
+  darkLogo?: string;
+  flavor: string;
+  html: string;
+  licenseKey?: string;
+  logo: string;
+  logoWidth: number;
+  platforms: ("android" | "ios" | "web")[];
+};
+
+export type ExpoConfig = Parameters<Expo.ConfigPlugin>[0];
+
+export type ExpoProps = {
+  assetsOutput?: string;
+  background?: string;
+  brand?: string;
+  brandWidth?: number;
+  darkBackground?: string;
+  darkBrand?: string;
+  darkLogo?: string;
+  // flavor?: string;
+  html?: string;
+  licenseKey?: string;
+  logo?: string;
+  logoWidth?: number;
+};
+
+export type ExpoPlugin = Expo.ConfigPlugin<ExpoProps>;
+
+type ExpoInput = {
+  config: ExpoConfig;
+  props: ExpoProps;
+};
+
+export const getAnyPlatform = ({ platforms = [] }: ExpoConfig) =>
+  platforms.includes("android") ? "android" : "ios";
+
+export const normalizeArgs = (input: CommandInput | ExpoInput) => {
+  const isExpo = "config" in input;
+
+  const args: CommandInput = isExpo
+    ? {
+        ...input.props,
+        background: input.props.background ?? "#fff",
+        brandWidth: input.props.brandWidth ?? 80,
+        // flavor: input.props.flavor ?? "main",
+        flavor: "main",
+        html: input.props.html ?? "index.html",
+        licenseKey: input.props.licenseKey ?? getEnvFileLicenseKey(),
+        logo: input.props.logo ?? "",
+        logoWidth: input.props.logoWidth ?? 100,
+        platforms: input.config.platforms ?? [],
+      }
+    : input;
+
   const logger: Logger = {
     error: (text: string) => {
       console.log(
@@ -435,19 +496,27 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   };
 
   const [nodeStringVersion = ""] = process.versions.node.split(".");
-  const nodeVersion = parseInt(nodeStringVersion, 10);
+  const nodeVersion = Number.parseInt(nodeStringVersion, 10);
 
-  if (!isNaN(nodeVersion) && nodeVersion < 18) {
+  if (!Number.isNaN(nodeVersion) && nodeVersion < 18) {
     logger.error("Requires Node 18 (or higher)");
     process.exit(1);
   }
 
-  const { flavor, platforms } = args;
+  if (isExpo) {
+    const [sdkStringVersion = ""] = input.config.sdkVersion?.split(".") ?? "";
+    const sdkVersion = Number.parseInt(sdkStringVersion, 10);
 
-  const hasAndroidPlatform = platforms.includes("android");
-  const hasIosPlatform = platforms.includes("ios");
-  const hasWebPlatform = platforms.includes("web");
-  const basePlatform = hasAndroidPlatform ? "android" : "ios";
+    if (Number.isNaN(sdkVersion) || sdkVersion < 49) {
+      logger.error("Requires Expo 49 (or higher)");
+      process.exit(1);
+    }
+  }
+
+  if (args.logo === "") {
+    logger.error("Missing required argument 'logo'");
+    process.exit(1);
+  }
 
   const logoPath = path.resolve(workingPath, args.logo);
 
@@ -469,7 +538,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
       ? path.resolve(workingPath, args.assetsOutput)
       : undefined;
 
-  const htmlTemplatePath = hasWebPlatform
+  const htmlTemplatePath = args.platforms.includes("web")
     ? getHtmlTemplatePath({ logger, html: args.html })
     : undefined;
 
@@ -553,7 +622,6 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   return {
     assetsOutputPath,
     background,
-    basePlatform,
     brand,
     brandPath,
     brandWidth,
@@ -562,9 +630,7 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
     darkBrandPath,
     darkLogo,
     darkLogoPath,
-    flavor,
-    hasAndroidPlatform,
-    hasIosPlatform,
+    flavor: args.flavor, // TODO: destructure
     htmlTemplatePath,
     licenseKey,
     logger,
@@ -575,22 +641,22 @@ const transformArgs = (isExpo: boolean, args: CommonArgs) => {
   } as const;
 };
 
-export type Props = ReturnType<typeof transformArgs>;
+export type Args = ReturnType<typeof normalizeArgs>;
 
-export type AddonProps = Props & {
+export type AddonArgs = Args & {
   androidResPath: string | undefined;
   iosProjectPath: string | undefined;
 };
 
 export type PlatformsPlugins = {
-  android: Expo.ConfigPlugin<Props>[];
-  ios: Expo.ConfigPlugin<Props>[];
-  generic: Expo.ConfigPlugin<Props>[];
+  android: ExpoPlugin[];
+  ios: ExpoPlugin[];
+  generic: ExpoPlugin[];
 };
 
 const requireAddon = ():
   | {
-      execute: (props: AddonProps) => Promise<void>;
+      execute: (args: AddonArgs) => Promise<void>;
       plugins: PlatformsPlugins;
     }
   | undefined => {
@@ -622,7 +688,7 @@ export const generateAndroidAssets = async ({
   androidResPath,
   logo,
   logoWidth,
-}: Props & {
+}: Args & {
   androidResPath: string;
 }): Promise<void> => {
   await ensureSupportedFormat({ logger, name: "Logo", image: logo });
@@ -704,7 +770,7 @@ export const generateIosAssets = async ({
   background,
   logo,
   logoWidth,
-}: Props & {
+}: Args & {
   iosProjectPath: string;
 }): Promise<void> => {
   await ensureSupportedFormat({ logger, name: "Logo", image: logo });
@@ -801,7 +867,7 @@ export const generateWebAssets = async ({
   logo,
   logoPath,
   logoWidth,
-}: Props & {
+}: Args & {
   htmlTemplatePath: string;
 }): Promise<void> => {
   await ensureSupportedFormat({ logger, name: "Logo", image: logo });
@@ -882,7 +948,7 @@ export const generateGenericAssets = async ({
   background,
   logo,
   logoWidth,
-}: Props & {
+}: Args & {
   assetsOutputPath: string;
 }): Promise<void> => {
   await ensureSupportedFormat({ logger, name: "Logo", image: logo });
@@ -933,24 +999,24 @@ export const generateGenericAssets = async ({
 export const generate = async ({
   android,
   ios,
-  ...args
+  ...input
 }: {
   android?: AndroidProjectConfig;
   ios?: IOSProjectConfig;
-} & CommonArgs) => {
+} & CommandInput) => {
+  const args = normalizeArgs(input);
+  const { platforms } = input;
   const projectName = ios?.xcodeProject?.name;
-  const props = transformArgs(false, args);
 
   const {
     assetsOutputPath,
     background,
-    hasAndroidPlatform,
-    hasIosPlatform,
+    flavor,
     htmlTemplatePath,
     licenseKey,
     logger,
     showNonFatalLogs,
-  } = props;
+  } = args;
 
   showNonFatalLogs();
 
@@ -959,17 +1025,17 @@ export const generate = async ({
   }
 
   const androidResPath =
-    hasAndroidPlatform && android != null
+    platforms.includes("android") && android != null
       ? getAndroidResPath({
           logger,
           appName: android.appName,
-          flavor: args.flavor,
+          flavor,
           sourceDir: android.sourceDir,
         })
       : undefined;
 
   const iosProjectPath =
-    hasIosPlatform && ios != null && projectName != null
+    platforms.includes("ios") && ios != null && projectName != null
       ? getIosProjectPath({
           logger,
           projectName: projectName.replace(/\.(xcodeproj|xcworkspace)$/, ""),
@@ -978,7 +1044,7 @@ export const generate = async ({
       : undefined;
 
   if (androidResPath != null) {
-    await generateAndroidAssets({ ...props, androidResPath });
+    await generateAndroidAssets({ ...args, androidResPath });
 
     const valuesPath = path.resolve(androidResPath, "values");
     hfs.ensureDir(valuesPath);
@@ -1016,7 +1082,7 @@ export const generate = async ({
   }
 
   if (iosProjectPath != null) {
-    await generateIosAssets({ ...props, iosProjectPath });
+    await generateIosAssets({ ...args, iosProjectPath });
 
     addFileToXcodeProject({
       logger,
@@ -1050,18 +1116,18 @@ export const generate = async ({
   }
 
   if (htmlTemplatePath != null) {
-    await generateWebAssets({ ...props, htmlTemplatePath });
+    await generateWebAssets({ ...args, htmlTemplatePath });
   }
 
   if (assetsOutputPath != null) {
-    await generateGenericAssets({ ...props, assetsOutputPath });
+    await generateGenericAssets({ ...args, assetsOutputPath });
   }
 
   if (licenseKey != null) {
     const addon = requireAddon();
 
     await addon?.execute({
-      ...props,
+      ...args,
       androidResPath,
       iosProjectPath,
     });
@@ -1080,31 +1146,31 @@ ${pc.blue("┗━━━━━━━━━━━━━━━━━━━━━━
 
 // Expo plugin
 
-const withAndroidAssets: Expo.ConfigPlugin<Props> = (config, props) =>
+const withAndroidAssets: ExpoPlugin = (config, props) =>
   Expo.withDangerousMod(config, [
     "android",
     async (config) => {
       const { platformProjectRoot } = config.modRequest;
-      const { logger, flavor } = props;
+      const args = normalizeArgs({ config, props });
 
       const androidResPath = getAndroidResPath({
-        logger,
         appName: "app",
-        flavor,
+        flavor: args.flavor,
+        logger: args.logger,
         sourceDir: platformProjectRoot,
       });
 
       if (androidResPath != null) {
-        await generateAndroidAssets({ ...props, androidResPath });
+        await generateAndroidAssets({ ...args, androidResPath });
       }
 
       return config;
     },
   ]);
 
-const withAndroidColors: Expo.ConfigPlugin<Props> = (config, props) =>
+const withAndroidColors: ExpoPlugin = (config, props) =>
   Expo.withAndroidColors(config, (config) => {
-    const { background } = props;
+    const { background } = normalizeArgs({ config, props });
 
     config.modResults = assignColorValue(config.modResults, {
       name: "bootsplash_background",
@@ -1114,7 +1180,7 @@ const withAndroidColors: Expo.ConfigPlugin<Props> = (config, props) =>
     return config;
   });
 
-const withAndroidManifest: Expo.ConfigPlugin<Props> = (config) =>
+const withAndroidManifest: ExpoPlugin = (config) =>
   Expo.withAndroidManifest(config, (config) => {
     config.modResults.manifest.application?.forEach((application) => {
       if (application.$["android:name"] === ".MainApplication") {
@@ -1131,7 +1197,7 @@ const withAndroidManifest: Expo.ConfigPlugin<Props> = (config) =>
     return config;
   });
 
-const withMainActivity: Expo.ConfigPlugin<Props> = (config) =>
+const withMainActivity: ExpoPlugin = (config) =>
   Expo.withMainActivity(config, (config) => {
     const { modResults } = config;
     const { language } = modResults;
@@ -1166,9 +1232,9 @@ const withMainActivity: Expo.ConfigPlugin<Props> = (config) =>
     };
   });
 
-const withAndroidStyles: Expo.ConfigPlugin<Props> = (config, props) =>
+const withAndroidStyles: ExpoPlugin = (config, props) =>
   Expo.withAndroidStyles(config, (config) => {
-    const { brand } = props;
+    const { brand } = normalizeArgs({ config, props });
 
     const item = [
       {
@@ -1205,28 +1271,28 @@ const withAndroidStyles: Expo.ConfigPlugin<Props> = (config, props) =>
     return config;
   });
 
-const withIosAssets: Expo.ConfigPlugin<Props> = (config, props) =>
+const withIosAssets: ExpoPlugin = (config, props) =>
   Expo.withDangerousMod(config, [
     "ios",
     async (config) => {
       const { platformProjectRoot, projectName = "" } = config.modRequest;
-      const { logger } = props;
+      const args = normalizeArgs({ config, props });
 
       const iosProjectPath = getIosProjectPath({
-        logger,
+        logger: args.logger,
         sourceDir: platformProjectRoot,
         projectName,
       });
 
       if (iosProjectPath != null) {
-        await generateIosAssets({ ...props, iosProjectPath });
+        await generateIosAssets({ ...args, iosProjectPath });
       }
 
       return config;
     },
   ]);
 
-const withAppDelegate: Expo.ConfigPlugin<Props> = (config) =>
+const withAppDelegate: ExpoPlugin = (config) =>
   Expo.withAppDelegate(config, (config) => {
     const { modResults } = config;
     const { language } = modResults;
@@ -1270,13 +1336,13 @@ const withAppDelegate: Expo.ConfigPlugin<Props> = (config) =>
     };
   });
 
-const withInfoPlist: Expo.ConfigPlugin<Props> = (config) =>
+const withInfoPlist: ExpoPlugin = (config) =>
   Expo.withInfoPlist(config, (config) => {
     config.modResults["UILaunchStoryboardName"] = "BootSplash";
     return config;
   });
 
-const withXcodeProject: Expo.ConfigPlugin<Props> = (config) =>
+const withXcodeProject: ExpoPlugin = (config) =>
   Expo.withXcodeProject(config, (config) => {
     const { platformProjectRoot, projectName = "" } = config.modRequest;
     const xcodeProjectPath = path.join(platformProjectRoot, projectName);
@@ -1291,80 +1357,36 @@ const withXcodeProject: Expo.ConfigPlugin<Props> = (config) =>
     return config;
   });
 
-const withGenericAssets: Expo.ConfigPlugin<Props> = (config, props) =>
+const withGenericAssets: ExpoPlugin = (config, props) =>
   Expo.withDangerousMod(config, [
-    props.basePlatform,
+    getAnyPlatform(config),
     async (config) => {
-      const { assetsOutputPath } = props;
+      const args = normalizeArgs({ config, props });
+      const { assetsOutputPath } = args;
 
       if (assetsOutputPath != null) {
-        await generateGenericAssets({ ...props, assetsOutputPath });
+        await generateGenericAssets({ ...args, assetsOutputPath });
       }
 
       return config;
     },
   ]);
 
-const withNonFatalLogs: Expo.ConfigPlugin<Props> = (config, props) =>
-  Expo.withDangerousMod(config, [
-    props.basePlatform,
-    (config) => {
-      props.showNonFatalLogs();
-      return config;
-    },
-  ]);
+// TODO: wrap normalizeArgs in runOnce, remove the need for this:
+// const withNonFatalLogs: ExpoPlugin = (config, props) =>
+//   Expo.withDangerousMod(config, [
+//     props.basePlatform,
+//     (config) => {
+//       props.showNonFatalLogs();
+//       return config;
+//     },
+//   ]);
 
-const getEnvFileLicenseKey = () => {
-  const absoluteDotenvFile = getEnv(projectRoot).files[0];
-
-  if (absoluteDotenvFile != null) {
-    const env = dotenv.parse(hfs.text(absoluteDotenvFile));
-    return env["BOOTSPLASH_LICENSE_KEY"];
-  }
-};
-
-export const withGenerate: Expo.ConfigPlugin<{
-  assetsOutput?: string;
-  background?: string;
-  brand?: string;
-  brandWidth?: number;
-  darkBackground?: string;
-  darkBrand?: string;
-  darkLogo?: string;
-  licenseKey?: string;
-  logo?: string;
-  logoWidth?: number;
-}> = (config, args = {}) => {
-  const plugins: Expo.ConfigPlugin<Props>[] = [];
+export const withGenerate: ExpoPlugin = (config, props = {}) => {
+  const plugins: ExpoPlugin[] = [];
   const { platforms = [] } = config;
-  const sdkVersion = Number(config.sdkVersion?.split(".")[0]);
-  const { logo = "" } = args;
 
-  const props = transformArgs(true, {
-    ...args,
-    platforms,
-    logo,
-    background: args.background ?? "#fff",
-    logoWidth: args.logoWidth ?? 100,
-    brandWidth: args.brandWidth ?? 80,
-    licenseKey: args.licenseKey ?? getEnvFileLicenseKey(),
-    flavor: "main",
-    html: "index.html",
-  });
-
-  const { logger, hasAndroidPlatform, hasIosPlatform, licenseKey } = props;
-
-  if (Number.isNaN(sdkVersion) || sdkVersion < 49) {
-    logger.error("Requires Expo 49 (or higher)");
-    process.exit(1);
-  }
-
-  if (logo === "") {
-    logger.error("Missing required argument 'logo'");
-    process.exit(1);
-  }
-
-  if (!hasAndroidPlatform && !hasIosPlatform) {
+  if (!platforms.includes("android") && !platforms.includes("ios")) {
     return config;
   }
 
@@ -1376,7 +1398,7 @@ export const withGenerate: Expo.ConfigPlugin<{
     generic: [withGenericAssets],
   };
 
-  if (hasAndroidPlatform) {
+  if (platforms.includes("android")) {
     plugins.push(
       ...platformsPlugins.android,
       withAndroidColors,
@@ -1386,7 +1408,7 @@ export const withGenerate: Expo.ConfigPlugin<{
     );
   }
 
-  if (hasIosPlatform) {
+  if (platforms.includes("ios")) {
     plugins.push(
       ...platformsPlugins.ios,
       withAppDelegate,
@@ -1395,7 +1417,7 @@ export const withGenerate: Expo.ConfigPlugin<{
     );
   }
 
-  plugins.push(...platformsPlugins.generic, withNonFatalLogs);
+  plugins.push(...platformsPlugins.generic /*withNonFatalLogs*/);
 
   return Expo.withPlugins(
     config,

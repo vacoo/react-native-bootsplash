@@ -1,3 +1,5 @@
+const platforms = ["android", "ios", "web"];
+
 /** @type {import("@react-native-community/cli-types").Command} */
 const generateBootSplash = {
   name: "generate-bootsplash <logo>",
@@ -6,13 +8,14 @@ const generateBootSplash = {
     {
       name: "--platforms <list>",
       description: "Platforms to generate for, separated by a comma",
-      default: "android,ios,web",
+      default: platforms.join(","),
       parse: (value) =>
         value
           .toLowerCase()
           .split(/[ ,;|]/)
-          .map((platform) => platform.trim())
-          .filter((platform) => platform !== ""),
+          .map((item) => item.trim())
+          .filter((item) => platforms.includes(item))
+          .filter((item, index, array) => array.indexOf(item) === index),
     },
     {
       name: "--background <string>",
@@ -24,11 +27,12 @@ const generateBootSplash = {
       description:
         "Logo width at @1x (in dp - we recommend approximately ~100)",
       default: 100,
-      parse: (value) => parseInt(value, 10),
+      parse: (value) => Number.parseInt(value, 10),
     },
     {
       name: "--assets-output <string>",
       description: "Assets output directory path",
+      default: "assets",
     },
     {
       name: "--flavor <string>",
@@ -55,7 +59,7 @@ const generateBootSplash = {
       description:
         "Brand width at @1x (in dp - we recommend approximately ~80)",
       default: 80,
-      parse: (value) => parseInt(value, 10),
+      parse: (value) => Number.parseInt(value, 10),
     },
     {
       name: "--dark-background <string>",
